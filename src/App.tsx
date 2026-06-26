@@ -55,6 +55,7 @@ import { buildTrainingHubSnapshot } from "./training/parsers";
 import { recentTrainingHubDateList } from "./training/formatters";
 import { TrainingHubView } from "./training/TrainingHubView";
 import type { TrainingHubSnapshot } from "./training/types";
+import type { CorosLinkApi } from "./coroslink-api";
 import paceProHero from "../public/assets/pace-pro-hero.webp";
 
 type View = "overview" | "media" | "training";
@@ -70,7 +71,7 @@ interface YouTubeDownloadItem {
 }
 
 export default function App() {
-  const api = window.corosLink;
+  const api: CorosLinkApi | undefined = window.corosLink;
   const [activeView, setActiveView] = useState<View>("overview");
   const [activeMediaTab, setActiveMediaTab] = useState<MediaTab>("library");
   const [watchStatus, setWatchStatus] = useState<WatchStatus | null>(null);
@@ -298,7 +299,7 @@ export default function App() {
 
     void api
       .listYouTubeJobs()
-      .then((jobs) => {
+      .then((jobs: DownloadJob[]) => {
         for (const job of jobs) {
           if (job.status === "completed") {
             completedJobIdsRef.current.add(job.id);
