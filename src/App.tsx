@@ -55,13 +55,14 @@ import { buildTrainingHubSnapshot } from "./training/parsers";
 import { recentTrainingHubDateList } from "./training/formatters";
 import { TrainingHubView } from "./training/TrainingHubView";
 import type { TrainingHubSnapshot } from "./training/types";
+import paceProHero from "../public/assets/pace-pro-hero.webp";
 
 type View = "overview" | "media" | "training";
 type MediaTab = "library" | "youtube" | "spotify";
 
 const PACE_PRO_BYTES = 32 * 1024 * 1024 * 1024;
 const YOUTUBE_HOME_URL = "https://www.youtube.com/";
-const YOUTUBE_DOWNLOAD_CONSOLE_PREFIX = "__COROS_YOUTUBE_DOWNLOAD__";
+const YOUTUBE_DOWNLOAD_CONSOLE_PREFIX = "__COROSLINK_YOUTUBE_DOWNLOAD__";
 
 interface YouTubeDownloadItem {
   url: string;
@@ -69,7 +70,7 @@ interface YouTubeDownloadItem {
 }
 
 export default function App() {
-  const api = window.coros;
+  const api = window.corosLink;
   const [activeView, setActiveView] = useState<View>("overview");
   const [activeMediaTab, setActiveMediaTab] = useState<MediaTab>("library");
   const [watchStatus, setWatchStatus] = useState<WatchStatus | null>(null);
@@ -859,7 +860,7 @@ export default function App() {
               <Watch size={22} aria-hidden="true" />
             </div>
             <div>
-              <strong>COROS Desktop</strong>
+              <strong>CorosLink</strong>
               <span>Media & watch</span>
             </div>
           </div>
@@ -1321,7 +1322,7 @@ function MediaOverviewTab({
       <div className="dashboard-hero-row dashboard-block">
         <section className="dashboard-hero panel">
           <img
-            src="/assets/pace-pro-hero.webp"
+            src={paceProHero}
             alt="COROS Pace Pro"
             className="dashboard-hero-image"
           />
@@ -1795,7 +1796,7 @@ function YouTubeBrowserView({
 
     if (resetSession) {
       domReadyRef.current = false;
-      await window.coros?.resetYouTubeBrowserSession();
+      await window.corosLink?.resetYouTubeBrowserSession();
       setWebviewSrc(nextUrl);
       setWebviewKey((value) => value + 1);
       setLoadError(null);
@@ -1981,7 +1982,7 @@ function YouTubeBrowserView({
 
       webview
         .executeJavaScript(
-          "window.__corosDrainDownloads ? window.__corosDrainDownloads() : []",
+          "window.__corosLinkDrainDownloads ? window.__corosLinkDrainDownloads() : []",
         )
         .then((items: unknown) => {
           if (Array.isArray(items) && items.length > 0) {
@@ -2079,7 +2080,7 @@ function YouTubeBrowserView({
               }}
               className="youtube-webview"
               src={webviewSrc}
-              partition="persist:coros-youtube"
+              partition="persist:coroslink-youtube"
               webpreferences="contextIsolation=yes,nodeIntegration=no,sandbox=no"
             />
 
@@ -2927,20 +2928,20 @@ function injectYouTubeDownloadButton(webview: WebviewElement): Promise<void> {
   const script = `
 (() => {
   const marker = ${JSON.stringify(YOUTUBE_DOWNLOAD_CONSOLE_PREFIX)};
-  const styleId = "coros-youtube-download-style";
-  const btnClass = "coros-yt-dl-btn";
+  const styleId = "coroslink-youtube-download-style";
+  const btnClass = "coroslink-yt-dl-btn";
   const rowSelector =
     "ytd-video-renderer, ytd-grid-video-renderer, ytd-rich-item-renderer";
 
-  window.__corosDrainDownloads = () => {
-    const pending = window.__corosPendingDownloads || [];
-    window.__corosPendingDownloads = [];
+  window.__corosLinkDrainDownloads = () => {
+    const pending = window.__corosLinkPendingDownloads || [];
+    window.__corosLinkPendingDownloads = [];
     return pending;
   };
 
   const emitDownload = (items) => {
     try {
-      window.__corosPendingDownloads = (window.__corosPendingDownloads || []).concat(items);
+      window.__corosLinkPendingDownloads = (window.__corosLinkPendingDownloads || []).concat(items);
     } catch (err) {}
     try {
       console.info(marker + JSON.stringify({ items }));
@@ -3071,8 +3072,8 @@ function injectYouTubeDownloadButton(webview: WebviewElement): Promise<void> {
     });
   };
 
-  if (!window.__corosYoutubeDownloadInjected) {
-    window.__corosYoutubeDownloadInjected = true;
+  if (!window.__corosLinkYoutubeDownloadInjected) {
+    window.__corosLinkYoutubeDownloadInjected = true;
     window.addEventListener("yt-navigate-finish", upsert);
     new MutationObserver(upsert).observe(
       document.body || document.documentElement,
