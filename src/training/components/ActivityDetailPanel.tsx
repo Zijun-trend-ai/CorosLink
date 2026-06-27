@@ -30,7 +30,7 @@ export function ActivityDetailPanel({ detail, fileUrl }: ActivityDetailPanelProp
 
   if (fileUrl) {
     return (
-      <section className="panel output-panel">
+      <section className="panel training-file-panel">
         <div className="section-heading compact">
           <h2>Activity file URL</h2>
         </div>
@@ -48,7 +48,7 @@ export function ActivityDetailPanel({ detail, fileUrl }: ActivityDetailPanelProp
   }
 
   return (
-    <section className="panel output-panel training-detail-panel">
+    <section className="panel training-detail-panel">
       <div className="section-heading compact">
         <div>
           <p className="eyebrow">Activity Detail</p>
@@ -123,7 +123,9 @@ export function ActivityDetailPanel({ detail, fileUrl }: ActivityDetailPanelProp
         </button>
       </div>
 
-      {showRaw ? <pre>{JSON.stringify(detail.raw, null, 2)}</pre> : null}
+      {showRaw ? (
+        <pre className="training-raw-json">{JSON.stringify(detail.raw, null, 2)}</pre>
+      ) : null}
     </section>
   );
 }

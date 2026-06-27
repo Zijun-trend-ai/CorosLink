@@ -6,9 +6,11 @@ import type {
   TrainingHubAnalytics,
   TrainingHubDailyMetric,
   TrainingHubDailyMetrics,
+  TrainingHubDashboard,
   TrainingHubRacePredictor,
   TrainingHubSportType,
-  TrainingHubStatus
+  TrainingHubStatus,
+  TrainingHubUpcomingWorkout
 } from "../../electron/types";
 
 export interface TrainingTrendPoint {
@@ -33,6 +35,7 @@ export interface TrainingHubSnapshot {
   summary: TrainingSummaryMetrics;
   trendPoints: TrainingTrendPoint[];
   racePredictor: TrainingHubRacePredictor | null;
+  dashboard: TrainingHubDashboard | null;
   analytics: TrainingHubAnalytics | null;
   dailyMetrics: TrainingHubDailyMetrics | null;
 }
@@ -42,6 +45,7 @@ export interface TrainingHubViewProps {
   email: string;
   password: string;
   activities: TrainingHubActivity[];
+  upcomingWorkouts: TrainingHubUpcomingWorkout[];
   snapshot: TrainingHubSnapshot | null;
   sportTypes: TrainingHubSportType[];
   activityDetail: TrainingHubActivityDetail | null;

@@ -101,3 +101,43 @@ export function recentTrainingHubDateList(days: number): string[] {
     return `${year}${month}${day}`;
   });
 }
+
+export function formatUpcomingWorkoutDate(happenDay: string): string {
+  if (!/^\d{8}$/.test(happenDay)) {
+    return happenDay;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const year = Number(happenDay.slice(0, 4));
+  const month = Number(happenDay.slice(4, 6)) - 1;
+  const day = Number(happenDay.slice(6, 8));
+  const date = new Date(year, month, day);
+  const diffDays = Math.round(
+    (date.getTime() - today.getTime()) / (24 * 60 * 60 * 1000)
+  );
+
+  if (diffDays === 0) {
+    return "Today";
+  }
+
+  if (diffDays > 0 && diffDays <= 6) {
+    return new Intl.DateTimeFormat(undefined, {
+      weekday: "short"
+    }).format(date);
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric"
+  }).format(date);
+}
+
+export function formatUpcomingWorkoutLoad(value?: number): string {
+  if (value === undefined || !Number.isFinite(value)) {
+    return "--";
+  }
+
+  return `${Math.round(value)}TL`;
+}

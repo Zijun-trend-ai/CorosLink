@@ -7,7 +7,7 @@ import type { DriveCandidate, WatchStatus, WatchTrack } from "./types";
 import { fallbackBytesForModel, resolveWatchModel } from "./watchModels";
 
 const execFileAsync = promisify(execFile);
-const COROS_NAME_PATTERN = /(coros|pace|apex|vertix)/i;
+const INSTALLER_VOLUME_PATTERN = /desktop|setup|installer|\.dmg/i;
 
 interface RawVolume {
   name: string;
@@ -23,24 +23,20 @@ interface StorageStats {
 export async function getWatchStatus(): Promise<WatchStatus> {
   try {
     const candidates = await findDriveCandidates();
-    const selected =
-      candidates.find((candidate) => candidate.musicPath) ?? candidates[0];
+    const selected = candidates.find((candidate) => candidate.musicPath);
 
-    if (!selected) {
+    if (!selected?.musicPath) {
       return {
         connected: false,
         checkedAt: new Date().toISOString(),
         tracks: [],
-        candidates: []
+        candidates
       };
     }
 
-    const musicPath =
-      selected.musicPath ?? path.join(selected.rootPath, "Music");
-    const tracks = fs.existsSync(musicPath) ? listWatchTracks(musicPath) : [];
-
-    const model =
-      resolveWatchModel(selected.name, selected.totalBytes) ?? "pace-pro";
+    const musicPath = selected.musicPath;
+    const tracks = listWatchTracks(musicPath);
+    const model = resolveWatchModel(selected.name, selected.totalBytes);
 
     return {
       connected: true,
@@ -73,7 +69,8 @@ export async function deleteWatchTrack(relativePath: string): Promise<void> {
   }
 
   const targetPath = safeResolveInside(status.musicPath, relativePath);
-  if (!targetPath.toLowerCase().endsWith(".mp3")) {
+  const fileName = path.basename(targetPath);
+  if (!isWatchMusicFile(fileName)) {
     throw new Error("Only MP3 files can be deleted from the watch.");
   }
 
@@ -117,11 +114,14 @@ async function findDriveCandidates(): Promise<DriveCandidate[]> {
   const candidates: DriveCandidate[] = [];
 
   for (const volume of volumes) {
+    if (INSTALLER_VOLUME_PATTERN.test(volume.name)) {
+      continue;
+    }
+
     const musicPath = path.join(volume.rootPath, "Music");
     const hasMusicFolder = isDirectory(musicPath);
-    const nameMatches = COROS_NAME_PATTERN.test(volume.name);
 
-    if (!hasMusicFolder && !nameMatches) {
+    if (!hasMusicFolder) {
       continue;
     }
 
@@ -129,19 +129,13 @@ async function findDriveCandidates(): Promise<DriveCandidate[]> {
     candidates.push({
       name: volume.name,
       rootPath: volume.rootPath,
-      musicPath: hasMusicFolder ? musicPath : undefined,
+      musicPath,
       ...storage,
-      reason: hasMusicFolder
-        ? "Music folder found"
-        : "Volume name matches COROS watch family"
+      reason: "Music folder found"
     });
   }
 
-  return candidates.sort((left, right) => {
-    if (left.musicPath && !right.musicPath) return -1;
-    if (!left.musicPath && right.musicPath) return 1;
-    return left.name.localeCompare(right.name);
-  });
+  return candidates.sort((left, right) => left.name.localeCompare(right.name));
 }
 
 async function listVolumes(): Promise<RawVolume[]> {
@@ -240,7 +234,7 @@ function listWatchTracks(musicPath: string): WatchTrack[] {
         continue;
       }
 
-      if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".mp3")) {
+      if (!entry.isFile() || !isWatchMusicFile(entry.name)) {
         continue;
       }
 
@@ -257,6 +251,18 @@ function listWatchTracks(musicPath: string): WatchTrack[] {
 
   walk(musicPath);
   return tracks.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function isWatchMusicFile(name: string): boolean {
+  if (!name.toLowerCase().endsWith(".mp3")) {
+    return false;
+  }
+
+  if (name.startsWith(".")) {
+    return false;
+  }
+
+  return true;
 }
 
 function getStorageStats(rootPath: string, volumeName: string): StorageStats {

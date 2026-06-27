@@ -81,7 +81,10 @@ export function TrainingActivityTable({
               activity.name || sportName || `Activity ${index + 1}`;
 
             return (
-              <tr key={activity.activityId || `${activity.sportType}-${index}`}>
+              <tr
+                className="training-table-row"
+                key={activity.activityId || `${activity.sportType}-${index}`}
+              >
                 <td>
                   <div className="training-activity-name">
                     <strong>{activityName}</strong>
@@ -100,8 +103,9 @@ export function TrainingActivityTable({
                 <td>
                   <div className="row-actions">
                     <button
-                      className="icon-button"
+                      className="icon-button training-action-button"
                       type="button"
+                      aria-label={`Load details for ${activityName}`}
                       title="Load activity detail"
                       disabled={busy === `training-detail:${activity.activityId}`}
                       onClick={() => onLoadDetail(activity)}
@@ -113,8 +117,9 @@ export function TrainingActivityTable({
                       )}
                     </button>
                     <button
-                      className="icon-button"
+                      className="icon-button training-action-button"
                       type="button"
+                      aria-label={`Get FIT file URL for ${activityName}`}
                       title="Get FIT file URL"
                       disabled={busy === `training-file:${activity.activityId}:4`}
                       onClick={() => onGetFileUrl(activity, 4)}

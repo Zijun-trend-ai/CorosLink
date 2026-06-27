@@ -12,7 +12,14 @@ import type {
   TrainingHubRaceScore,
   TrainingHubSportStatistic,
   TrainingHubSportType,
-  TrainingHubStatus
+  TrainingHubDashboard,
+  TrainingHubPersonalRecord,
+  TrainingHubPersonalRecordGroup,
+  TrainingHubSleepHrvReading,
+  TrainingHubSleepHrvSummary,
+  TrainingHubStatus,
+  TrainingHubThresholdZone,
+  TrainingHubUpcomingWorkout
 } from "./types";
 
 interface LoginResult {
@@ -96,6 +103,10 @@ interface RawTrainingHubActivity {
 
 interface TrainingHubDashboardData {
   summaryInfo?: Record<string, unknown>;
+  sportDataSummary?: {
+    count?: number;
+    modelValidState?: boolean;
+  };
 }
 
 interface TrainingHubSportListData {
@@ -363,13 +374,17 @@ export async function getTrainingAnalytics(): Promise<TrainingHubAnalytics> {
   return parseAnalytics(raw);
 }
 
-export async function getRacePredictor(): Promise<TrainingHubRacePredictor> {
+export async function getTrainingDashboard(): Promise<TrainingHubDashboard> {
   const dashboard = await trainingHubGet<TrainingHubDashboardData>(
     "/dashboard/query"
   );
-  const summary = dashboard.summaryInfo ?? {};
 
-  return parseRacePredictor(summary);
+  return parseTrainingDashboard(dashboard);
+}
+
+export async function getRacePredictor(): Promise<TrainingHubRacePredictor> {
+  const dashboard = await getTrainingDashboard();
+  return dashboard.racePredictor;
 }
 
 export async function getDailyMetrics(
@@ -410,6 +425,231 @@ export async function getSportTypeMap(): Promise<TrainingHubSportType[]> {
   } catch {
     return [];
   }
+}
+
+export async function getUpcomingWorkouts(
+  days = 14
+): Promise<TrainingHubUpcomingWorkout[]> {
+  const { startDay, endDay } = upcomingScheduleDateRange(days);
+  const raw = await trainingHubGet<Record<string, unknown>>(
+    "/training/schedule/query",
+    {
+      startDate: startDay,
+      endDate: endDay,
+      supportRestExercise: 1
+    }
+  );
+
+  return parseUpcomingWorkouts(raw, startDay);
+}
+
+function upcomingScheduleDateRange(days: number): {
+  startDay: string;
+  endDay: string;
+} {
+  const start = new Date();
+  const end = new Date();
+  end.setDate(end.getDate() + Math.max(0, days - 1));
+
+  return {
+    startDay: formatScheduleDay(start),
+    endDay: formatScheduleDay(end)
+  };
+}
+
+function formatScheduleDay(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}${month}${day}`;
+}
+
+function parseUpcomingWorkouts(
+  raw: Record<string, unknown>,
+  todayDay: string
+): TrainingHubUpcomingWorkout[] {
+  const entities = extractArray(raw, ["entities"]) ?? [];
+  const programs = extractArray(raw, ["programs"]) ?? [];
+  const programsByIdInPlan = new Map<string, Record<string, unknown>>();
+  const programsById = new Map<string, Record<string, unknown>>();
+
+  for (const item of programs) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+
+    const program = item as Record<string, unknown>;
+    const idInPlan = program.idInPlan;
+
+    if (idInPlan !== undefined && idInPlan !== null) {
+      programsByIdInPlan.set(String(idInPlan), program);
+    }
+
+    if (program.id !== undefined && program.id !== null) {
+      programsById.set(String(program.id), program);
+    }
+  }
+
+  const workouts: TrainingHubUpcomingWorkout[] = [];
+
+  entities.forEach((item, index) => {
+    if (!item || typeof item !== "object") {
+      return;
+    }
+
+    const entity = item as Record<string, unknown>;
+    const status = toOptionalNumber(entity.status);
+
+    if (status === 3) {
+      return;
+    }
+
+    const happenDay = String(entity.happenDay ?? "");
+
+    if (!/^\d{8}$/.test(happenDay) || happenDay < todayDay) {
+      return;
+    }
+
+    const idInPlan = String(entity.idInPlan ?? "");
+    const planProgramId = String(entity.planProgramId ?? "");
+    const program =
+      (idInPlan ? programsByIdInPlan.get(idInPlan) : undefined) ??
+      (planProgramId ? programsById.get(planProgramId) : undefined) ??
+      (programs[index] && typeof programs[index] === "object"
+        ? (programs[index] as Record<string, unknown>)
+        : undefined);
+
+    workouts.push({
+      happenDay,
+      name: resolveUpcomingWorkoutName(program, entity),
+      volume: formatUpcomingWorkoutVolume(program),
+      trainingLoad: resolveUpcomingWorkoutLoad(program),
+      sportType: toOptionalNumber(program?.sportType),
+      sortNo: toOptionalNumber(entity.sortNoInSchedule ?? entity.sortNo)
+    });
+  });
+
+  return workouts.sort((left, right) => {
+    if (left.happenDay !== right.happenDay) {
+      return left.happenDay.localeCompare(right.happenDay);
+    }
+
+    return (left.sortNo ?? 0) - (right.sortNo ?? 0);
+  });
+}
+
+function resolveUpcomingWorkoutName(
+  program: Record<string, unknown> | undefined,
+  entity: Record<string, unknown>
+): string {
+  return (
+    (program ? pickString(program, ["name"]) : undefined) ??
+    pickString(entity, ["name"]) ??
+    "Scheduled workout"
+  );
+}
+
+function resolveUpcomingWorkoutLoad(
+  program: Record<string, unknown> | undefined
+): number | undefined {
+  return (
+    toOptionalNumber(program?.trainingLoad) ??
+    toOptionalNumber(program?.estimatedValue)
+  );
+}
+
+function formatUpcomingWorkoutVolume(
+  program: Record<string, unknown> | undefined
+): string | undefined {
+  const distanceMeters = resolveWorkoutDistanceMeters(program);
+
+  if (distanceMeters > 0) {
+    return `${(distanceMeters / 1000).toFixed(2)}km`;
+  }
+
+  const sets = resolveWorkoutSetCount(program);
+
+  if (sets > 0) {
+    return `${sets} set(s)`;
+  }
+
+  return undefined;
+}
+
+function resolveWorkoutDistanceMeters(
+  program: Record<string, unknown> | undefined
+): number {
+  if (!program) {
+    return 0;
+  }
+
+  const directDistance = toOptionalNumber(program.distance);
+
+  if (directDistance && directDistance >= 100) {
+    return directDistance;
+  }
+
+  const estimatedDistance = toOptionalNumber(program.estimatedDistance);
+
+  if (estimatedDistance && estimatedDistance > 0) {
+    return estimatedDistance / 100;
+  }
+
+  if (directDistance && directDistance > 0) {
+    return directDistance / 100;
+  }
+
+  const exercises = Array.isArray(program.exercises) ? program.exercises : [];
+  let total = 0;
+
+  for (const item of exercises) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+
+    const exercise = item as Record<string, unknown>;
+    const targetType = toOptionalNumber(exercise.targetType);
+    const targetValue = toOptionalNumber(exercise.targetValue);
+    const sets = Math.max(1, toOptionalNumber(exercise.sets) ?? 1);
+
+    if (targetType === 5 && targetValue) {
+      total += (targetValue / 100) * sets;
+    }
+  }
+
+  return total;
+}
+
+function resolveWorkoutSetCount(
+  program: Record<string, unknown> | undefined
+): number {
+  if (!program) {
+    return 0;
+  }
+
+  const totalSets =
+    toOptionalNumber(program.totalSets) ??
+    toOptionalNumber(program.sets) ??
+    toOptionalNumber(program.exerciseNum);
+
+  if (totalSets && totalSets > 0) {
+    return Math.round(totalSets);
+  }
+
+  const exercises = Array.isArray(program.exercises) ? program.exercises : [];
+
+  if (exercises.length === 0) {
+    return 0;
+  }
+
+  return exercises.reduce((count, item) => {
+    if (!item || typeof item !== "object") {
+      return count;
+    }
+
+    const exercise = item as Record<string, unknown>;
+    return count + Math.max(1, toOptionalNumber(exercise.sets) ?? 1);
+  }, 0);
 }
 
 function mapTrainingHubActivity(
@@ -479,6 +719,191 @@ function parseAnalytics(raw: Record<string, unknown>): TrainingHubAnalytics {
     sportStatistics,
     raw
   };
+}
+
+const RECORD_TYPE_LABELS: Record<number, string> = {
+  6: "3K",
+  7: "1K",
+  8: "1 Mile",
+  9: "2 Mile",
+  10: "5K",
+  11: "10K",
+  12: "Half Marathon",
+  13: "Marathon",
+  101: "Longest Run",
+  102: "Best Pace"
+};
+
+const RECORD_GROUP_LABELS: Record<number, string> = {
+  1: "All-time",
+  2: "This year",
+  3: "This month",
+  4: "This week"
+};
+
+function parseTrainingDashboard(
+  dashboard: TrainingHubDashboardData
+): TrainingHubDashboard {
+  const summary = dashboard.summaryInfo ?? {};
+  const racePredictor = parseRacePredictor(summary);
+
+  return {
+    racePredictor,
+    rhr: toOptionalNumber(summary.rhr),
+    recoveryPct: toOptionalNumber(summary.recoveryPct),
+    recoveryState: toOptionalNumber(summary.recoveryState),
+    fullRecoveryHours: toOptionalNumber(summary.fullRecoveryHours),
+    fitnessMaxHr: toOptionalNumber(summary.fitnessMaxHr),
+    runningLevelHr: toOptionalNumber(summary.runningLevelHr),
+    lthrZones: parseThresholdZones(summary.lthrZone),
+    ltspZones: parseThresholdZones(summary.ltspZone),
+    personalRecords: parsePersonalRecordGroups(summary.recordDetailList),
+    sleepHrv: parseSleepHrvSummary(summary.sleepHrvData),
+    sportDataCount: toOptionalNumber(dashboard.sportDataSummary?.count),
+    raw: dashboard as Record<string, unknown>
+  };
+}
+
+function parseThresholdZones(raw: unknown): TrainingHubThresholdZone[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  const zones: TrainingHubThresholdZone[] = [];
+
+  for (const item of raw) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+
+    const zone = item as Record<string, unknown>;
+    const index = toOptionalNumber(zone.index);
+
+    if (index === undefined) {
+      continue;
+    }
+
+    zones.push({
+      index,
+      hr: toOptionalNumber(zone.hr),
+      pace: toOptionalNumber(zone.pace),
+      ratio: toOptionalNumber(zone.ratio)
+    });
+  }
+
+  return zones.sort((left, right) => left.index - right.index);
+}
+
+function parsePersonalRecordGroups(raw: unknown): TrainingHubPersonalRecordGroup[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const group = item as Record<string, unknown>;
+      const type = toOptionalNumber(group.type) ?? 0;
+      const recordList = extractArray(group, ["recordList"]) ?? [];
+
+      return {
+        type,
+        label: RECORD_GROUP_LABELS[type] ?? `Period ${type}`,
+        records: recordList.map((record) =>
+          parsePersonalRecord(record as Record<string, unknown>)
+        )
+      };
+    })
+    .filter((group): group is TrainingHubPersonalRecordGroup => group !== null);
+}
+
+function parsePersonalRecord(
+  raw: Record<string, unknown>
+): TrainingHubPersonalRecord {
+  const type = toOptionalNumber(raw.type) ?? 0;
+  const duration =
+    toOptionalNumber(raw.record) ?? toOptionalNumber(raw.duration);
+  const distance = toOptionalNumber(raw.distance);
+  let label = RECORD_TYPE_LABELS[type];
+
+  if (!label && distance && distance > 0) {
+    label =
+      distance >= 1000
+        ? `${(distance / 1000).toFixed(distance % 1000 === 0 ? 0 : 1)} km`
+        : `${Math.round(distance)} m`;
+  }
+
+  if (!label) {
+    label = pickString(raw, ["name", "site"]) ?? `Record ${type}`;
+  }
+
+  return {
+    type,
+    label,
+    name: pickString(raw, ["name", "site"]),
+    distance: distance && distance > 0 ? distance : undefined,
+    duration,
+    avgPace: toOptionalNumber(raw.avgPace),
+    happenDay: normalizeHappenDay(raw.happenDay),
+    activityId: pickString(raw, ["labelIdStr", "labelId"])
+  };
+}
+
+function parseSleepHrvSummary(
+  raw: unknown
+): TrainingHubSleepHrvSummary | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+
+  const data = raw as Record<string, unknown>;
+  const readings: TrainingHubSleepHrvReading[] = [];
+
+  if (Array.isArray(data.sleepHrvList)) {
+    for (const item of data.sleepHrvList) {
+      if (!item || typeof item !== "object") {
+        continue;
+      }
+
+      const reading = item as Record<string, unknown>;
+      const happenDay = normalizeHappenDay(reading.happenDay);
+
+      if (!happenDay) {
+        continue;
+      }
+
+      readings.push({
+        happenDay,
+        avgSleepHrv: toOptionalNumber(reading.avgSleepHrv),
+        sleepHrvBase: toOptionalNumber(reading.sleepHrvBase)
+      });
+    }
+  }
+
+  return {
+    happenDay: normalizeHappenDay(data.happenDay),
+    avgSleepHrv: toOptionalNumber(data.avgSleepHrv),
+    sleepHrvBase: toOptionalNumber(data.sleepHrvBase),
+    remainWearDays: toOptionalNumber(data.remainWearDays),
+    recentReadings: readings
+  };
+}
+
+function normalizeHappenDay(value: unknown): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  const text = String(value);
+
+  if (/^\d{8}$/.test(text)) {
+    return text;
+  }
+
+  return undefined;
 }
 
 function parseRacePredictor(

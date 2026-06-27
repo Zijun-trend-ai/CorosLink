@@ -16,9 +16,11 @@ import type {
   TrainingHubActivityFileType,
   TrainingHubAnalytics,
   TrainingHubDailyMetrics,
+  TrainingHubDashboard,
   TrainingHubRacePredictor,
   TrainingHubSportType,
   TrainingHubStatus,
+  TrainingHubUpcomingWorkout,
   TransferResult,
   WatchStatus,
   YouTubeHistoryEntry
@@ -63,6 +65,8 @@ const api = {
     ipcRenderer.invoke("youtube:listJobs"),
   clearYouTubeJob: (id: string): Promise<DownloadJob[]> =>
     ipcRenderer.invoke("youtube:clearJob", id),
+  cancelYouTubeJob: (id: string): Promise<DownloadJob[]> =>
+    ipcRenderer.invoke("youtube:cancelJob", id),
   clearCompletedYouTubeJobs: (): Promise<DownloadJob[]> =>
     ipcRenderer.invoke("youtube:clearCompletedJobs"),
   onYouTubeJobsUpdate: (
@@ -142,10 +146,16 @@ const api = {
     ipcRenderer.invoke("trainingHub:getTrainingAnalytics"),
   getRacePredictor: (): Promise<TrainingHubRacePredictor> =>
     ipcRenderer.invoke("trainingHub:getRacePredictor"),
+  getTrainingDashboard: (): Promise<TrainingHubDashboard> =>
+    ipcRenderer.invoke("trainingHub:getDashboard"),
   getDailyMetrics: (dateList: string[]): Promise<TrainingHubDailyMetrics> =>
     ipcRenderer.invoke("trainingHub:getDailyMetrics", dateList),
   getSportTypeMap: (): Promise<TrainingHubSportType[]> =>
-    ipcRenderer.invoke("trainingHub:getSportTypeMap")
+    ipcRenderer.invoke("trainingHub:getSportTypeMap"),
+  getUpcomingWorkouts: (
+    days?: number
+  ): Promise<TrainingHubUpcomingWorkout[]> =>
+    ipcRenderer.invoke("trainingHub:getUpcomingWorkouts", days)
 };
 
 contextBridge.exposeInMainWorld("corosLink", api);

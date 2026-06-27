@@ -15,9 +15,11 @@ import type {
   TrainingHubActivityFileType,
   TrainingHubAnalytics,
   TrainingHubDailyMetrics,
+  TrainingHubDashboard,
   TrainingHubRacePredictor,
   TrainingHubSportType,
   TrainingHubStatus,
+  TrainingHubUpcomingWorkout,
   TransferResult,
   WatchStatus,
   YouTubeHistoryEntry
@@ -48,6 +50,7 @@ export interface CorosLinkApi {
   ) => Promise<DownloadJob[]>;
   listYouTubeJobs: () => Promise<DownloadJob[]>;
   clearYouTubeJob: (id: string) => Promise<DownloadJob[]>;
+  cancelYouTubeJob: (id: string) => Promise<DownloadJob[]>;
   clearCompletedYouTubeJobs: () => Promise<DownloadJob[]>;
   onYouTubeJobsUpdate: (
     callback: (jobs: DownloadJob[]) => void
@@ -91,8 +94,10 @@ export interface CorosLinkApi {
   ) => Promise<string>;
   getTrainingAnalytics: () => Promise<TrainingHubAnalytics>;
   getRacePredictor: () => Promise<TrainingHubRacePredictor>;
+  getTrainingDashboard: () => Promise<TrainingHubDashboard>;
   getDailyMetrics: (dateList: string[]) => Promise<TrainingHubDailyMetrics>;
   getSportTypeMap: () => Promise<TrainingHubSportType[]>;
+  getUpcomingWorkouts: (days?: number) => Promise<TrainingHubUpcomingWorkout[]>;
 }
 
 declare global {

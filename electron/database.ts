@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { musicFileNamesMatch } from "./musicFileNames";
 import Database from "better-sqlite3";
 import type {
   LocalTrack,
@@ -211,6 +212,31 @@ export function markDownloadTransferred(id: string): void {
   requireDatabase()
     .prepare("UPDATE downloads SET transferred_at = ? WHERE id = ?")
     .run(new Date().toISOString(), id);
+}
+
+export function clearDownloadTransferredByFileName(fileName: string): void {
+  if (!fileName) {
+    return;
+  }
+
+  const database = requireDatabase();
+  const rows = database
+    .prepare(
+      `SELECT id, file_path
+       FROM downloads
+       WHERE transferred_at IS NOT NULL`,
+    )
+    .all() as Array<{ id: string; file_path: string }>;
+
+  const clear = database.prepare(
+    "UPDATE downloads SET transferred_at = NULL WHERE id = ?",
+  );
+
+  for (const row of rows) {
+    if (musicFileNamesMatch(row.file_path, fileName)) {
+      clear.run(row.id);
+    }
+  }
 }
 
 export function deleteDownload(id: string, removeFile: boolean): void {

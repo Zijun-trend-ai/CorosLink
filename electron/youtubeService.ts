@@ -73,6 +73,53 @@ export async function downloadMultipleFromYouTubeBrowser(
   return { tracks, output };
 }
 
+export function normalizeYouTubeDownloadUrl(rawUrl: string): string {
+  const trimmedUrl = rawUrl.trim();
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmedUrl);
+  } catch {
+    throw new Error("Enter a valid YouTube URL or playlist URL.");
+  }
+
+  const host = parsed.hostname.replace(/^www\./i, "").toLowerCase();
+
+  if (host === "youtu.be") {
+    return normalizeYouTubeUrl(trimmedUrl);
+  }
+
+  if (!host.endsWith("youtube.com")) {
+    throw new Error("Enter a valid YouTube URL or playlist URL.");
+  }
+
+  const playlistId = parsed.searchParams.get("list");
+
+  if (parsed.pathname === "/playlist" && playlistId) {
+    return `https://www.youtube.com/playlist?list=${encodeURIComponent(playlistId)}`;
+  }
+
+  if (parsed.pathname === "/watch" && playlistId) {
+    return `https://www.youtube.com/playlist?list=${encodeURIComponent(playlistId)}`;
+  }
+
+  return normalizeYouTubeUrl(trimmedUrl);
+}
+
+export function isPlaylistDownloadUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+
+    if (parsed.pathname === "/playlist" && parsed.searchParams.has("list")) {
+      return true;
+    }
+
+    return parsed.pathname === "/watch" && parsed.searchParams.has("list");
+  } catch {
+    return false;
+  }
+}
+
 export function normalizeYouTubeUrl(rawUrl: string): string {
   const trimmedUrl = rawUrl.trim();
 
@@ -130,6 +177,10 @@ export function classifyYouTubeUrl(url: string): YouTubeHistoryEntryType {
     }
 
     if (parsed.pathname === "/watch" && parsed.searchParams.has("v")) {
+      if (parsed.searchParams.has("list")) {
+        return "playlist";
+      }
+
       return "video";
     }
 

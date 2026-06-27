@@ -32,7 +32,7 @@ export interface WatchTrack {
   modifiedAt: string;
 }
 
-export type WatchModelId = "pace-pro" | "pace-4";
+export type WatchModelId = "pace-pro" | "pace-4" | "pace-3" | "nomad";
 
 export interface WatchStatus {
   connected: boolean;
@@ -62,13 +62,33 @@ export interface LocalTrack {
 export interface DownloadAudioResult {
   tracks: LocalTrack[];
   output: string[];
+  warnings?: string[];
 }
 
 export type DownloadJobStatus =
   | "queued"
   | "downloading"
   | "completed"
+  | "failed"
+  | "cancelled";
+
+export type DownloadActivityPhase =
+  | "starting"
+  | "downloading"
+  | "converting"
+  | "between_tracks"
+  | "completed"
   | "failed";
+
+export interface DownloadProgressUpdate {
+  trackProgress?: number;
+  trackIndex?: number;
+  trackTotal?: number;
+  currentTrackTitle?: string;
+  phase?: DownloadActivityPhase;
+  activity?: string;
+  completedTrackIncrement?: number;
+}
 
 export interface DownloadJob {
   id: string;
@@ -80,6 +100,15 @@ export interface DownloadJob {
   tracks: LocalTrack[];
   createdAt: string;
   updatedAt: string;
+  entryType?: "video" | "playlist";
+  phase?: DownloadActivityPhase;
+  trackIndex?: number;
+  trackTotal?: number;
+  currentTrackTitle?: string;
+  trackProgress?: number;
+  activity?: string;
+  completedTrackCount?: number;
+  warning?: string;
 }
 
 export type YouTubeHistoryEntryType =
@@ -281,4 +310,67 @@ export interface TrainingHubActivityDetail {
 export interface TrainingHubSportType {
   sportType: number;
   sportName: string;
+}
+
+export interface TrainingHubUpcomingWorkout {
+  happenDay: string;
+  name: string;
+  volume?: string;
+  trainingLoad?: number;
+  sportType?: number;
+  sortNo?: number;
+}
+
+export interface TrainingHubThresholdZone {
+  index: number;
+  hr?: number;
+  pace?: number;
+  ratio?: number;
+}
+
+export interface TrainingHubPersonalRecord {
+  type: number;
+  label: string;
+  name?: string;
+  distance?: number;
+  duration?: number;
+  avgPace?: number;
+  happenDay?: string;
+  activityId?: string;
+}
+
+export interface TrainingHubPersonalRecordGroup {
+  type: number;
+  label: string;
+  records: TrainingHubPersonalRecord[];
+}
+
+export interface TrainingHubSleepHrvReading {
+  happenDay: string;
+  avgSleepHrv?: number;
+  sleepHrvBase?: number;
+}
+
+export interface TrainingHubSleepHrvSummary {
+  happenDay?: string;
+  avgSleepHrv?: number;
+  sleepHrvBase?: number;
+  remainWearDays?: number;
+  recentReadings: TrainingHubSleepHrvReading[];
+}
+
+export interface TrainingHubDashboard {
+  racePredictor: TrainingHubRacePredictor;
+  rhr?: number;
+  recoveryPct?: number;
+  recoveryState?: number;
+  fullRecoveryHours?: number;
+  fitnessMaxHr?: number;
+  runningLevelHr?: number;
+  lthrZones: TrainingHubThresholdZone[];
+  ltspZones: TrainingHubThresholdZone[];
+  personalRecords: TrainingHubPersonalRecordGroup[];
+  sleepHrv?: TrainingHubSleepHrvSummary;
+  sportDataCount?: number;
+  raw?: Record<string, unknown>;
 }

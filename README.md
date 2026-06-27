@@ -13,6 +13,12 @@
 </p>
 
 <p align="center">
+  <a href="https://www.buymeacoffee.com/addridoa">
+    <img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=addridoa&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" alt="Buy me a coffee" />
+  </a>
+</p>
+
+<p align="center">
   Unofficial desktop app for COROS Pace Pro owners. Not affiliated with or endorsed by COROS.
 </p>
 
@@ -210,7 +216,7 @@ npm run binaries:prepare
 npm run dev
 ```
 
-The dev command starts Vite at `http://127.0.0.1:5173/` and launches Electron. `npm run rebuild` prepares native SQLite bindings for Electron. `npm run binaries:prepare` downloads the current platform's standalone `yt-dlp` release asset and copies the `ffmpeg-static` binary into `bin/<platform>-<arch>/`.
+The dev command starts Vite at `http://127.0.0.1:5173/` and launches Electron. `npm run rebuild` prepares native SQLite bindings for Electron. `npm run dev` automatically runs `binaries:prepare` before Electron starts, downloading the pinned `yt-dlp` release and copying the `ffmpeg-static` binary into `bin/<platform>-<arch>/`. You can also run `npm run binaries:prepare` manually if you only need to refresh media tools.
 
 To prepare Windows x64 media binaries from any platform:
 
@@ -277,13 +283,13 @@ Because `better-sqlite3` is native, build Windows installers on Windows or in CI
 1. Prepare the version in `package.json` and `package-lock.json` so they match the tag you are about to create:
 
 ```sh
-npm run release:prepare -- v0.1.4
-git commit -am "chore: release v0.1.4"
-git tag v0.1.4
-git push origin main v0.1.4
+npm run release:prepare -- v0.1.5
+git commit -am "chore: release v0.1.5"
+git tag v0.1.5
+git push origin main v0.1.5
 ```
 
-2. That triggers the [Release installers](.github/workflows/release.yml) workflow. CI syncs the tag into `package.json` before building, then verifies the versions match, so installer names like `CorosLink-0.1.4-arm64.dmg` always follow the git tag.
+2. That triggers the [Release installers](.github/workflows/release.yml) workflow. CI syncs the tag into `package.json` before building, then verifies the versions match, so installer names like `CorosLink-0.1.5-arm64.dmg` always follow the git tag.
 
 You can also run the workflow manually from **Actions → Release installers** (it uses the current `package.json` version when no tag is pushed).
 

@@ -46,17 +46,29 @@ import type {
   TrainingHubActivityFileType,
   TrainingHubAnalytics,
   TrainingHubDailyMetrics,
-  TrainingHubRacePredictor,
+  TrainingHubDashboard,
   TrainingHubSportType,
   TrainingHubStatus,
+  TrainingHubUpcomingWorkout,
   WatchStatus,
   WatchTrack,
 } from "../electron/types";
 import { buildTrainingHubSnapshot } from "./training/parsers";
+import { fetchTrainingDashboard, fetchUpcomingWorkouts } from "./training/api";
 import { recentTrainingHubDateList } from "./training/formatters";
 import { TrainingHubView } from "./training/TrainingHubView";
 import type { TrainingHubSnapshot } from "./training/types";
 import type { CorosLinkApi } from "./coroslink-api";
+import {
+  LibrarySyncLayout,
+  LocalLibraryPanel,
+  WatchLibraryPanel,
+} from "./media/LibraryPanels";
+import {
+  countPendingTransfers,
+  isLocalTrackOnWatch,
+} from "./media/libraryUtils";
+import { useTimeOfDayGreeting } from "./hooks/useTimeOfDayGreeting";
 import { getWatchPresentation } from "./watchModels";
 
 type View = "overview" | "media" | "training";
@@ -111,13 +123,15 @@ export default function App() {
   >([]);
   const [trainingHubAnalytics, setTrainingHubAnalytics] =
     useState<TrainingHubAnalytics | null>(null);
-  const [trainingHubRacePredictor, setTrainingHubRacePredictor] =
-    useState<TrainingHubRacePredictor | null>(null);
+  const [trainingHubDashboard, setTrainingHubDashboard] =
+    useState<TrainingHubDashboard | null>(null);
   const [trainingHubDailyMetrics, setTrainingHubDailyMetrics] =
     useState<TrainingHubDailyMetrics | null>(null);
   const [trainingHubSportTypes, setTrainingHubSportTypes] = useState<
     TrainingHubSportType[]
   >([]);
+  const [trainingHubUpcomingWorkouts, setTrainingHubUpcomingWorkouts] =
+    useState<TrainingHubUpcomingWorkout[]>([]);
   const [trainingHubActivityDetail, setTrainingHubActivityDetail] =
     useState<TrainingHubActivityDetail | null>(null);
   const [trainingHubFileUrl, setTrainingHubFileUrl] = useState<string | null>(
@@ -125,10 +139,20 @@ export default function App() {
   );
   const [url, setUrl] = useState("");
   const [autoTransfer, setAutoTransfer] = useState(true);
+  const autoTransferRef = useRef(autoTransfer);
+  const watchConnectedRef = useRef(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastOutput, setLastOutput] = useState<string[]>([]);
+
+  useEffect(() => {
+    autoTransferRef.current = autoTransfer;
+  }, [autoTransfer]);
+
+  useEffect(() => {
+    watchConnectedRef.current = Boolean(watchStatus?.connected);
+  }, [watchStatus?.connected]);
 
   const refreshAll = useCallback(async () => {
     if (!api) {
@@ -176,9 +200,10 @@ export default function App() {
   const clearTrainingHubData = useCallback(() => {
     setTrainingHubActivities([]);
     setTrainingHubAnalytics(null);
-    setTrainingHubRacePredictor(null);
+    setTrainingHubDashboard(null);
     setTrainingHubDailyMetrics(null);
     setTrainingHubSportTypes([]);
+    setTrainingHubUpcomingWorkouts([]);
     setTrainingHubActivityDetail(null);
     setTrainingHubFileUrl(null);
   }, []);
@@ -192,15 +217,17 @@ export default function App() {
     const [
       activitiesResult,
       analyticsResult,
-      raceResult,
+      dashboardResult,
       dailyResult,
       sportTypesResult,
+      upcomingResult,
     ] = await Promise.allSettled([
       api.listTrainingHubActivities(1, 50),
       api.getTrainingAnalytics(),
-      api.getRacePredictor(),
+      fetchTrainingDashboard(api),
       api.getDailyMetrics(dateList),
       api.getSportTypeMap(),
+      fetchUpcomingWorkouts(api, 14),
     ]);
 
     if (activitiesResult.status === "fulfilled") {
@@ -212,8 +239,8 @@ export default function App() {
     setTrainingHubAnalytics(
       analyticsResult.status === "fulfilled" ? analyticsResult.value : null,
     );
-    setTrainingHubRacePredictor(
-      raceResult.status === "fulfilled" ? raceResult.value : null,
+    setTrainingHubDashboard(
+      dashboardResult.status === "fulfilled" ? dashboardResult.value : null,
     );
     setTrainingHubDailyMetrics(
       dailyResult.status === "fulfilled" ? dailyResult.value : null,
@@ -221,13 +248,17 @@ export default function App() {
     setTrainingHubSportTypes(
       sportTypesResult.status === "fulfilled" ? sportTypesResult.value : [],
     );
+    setTrainingHubUpcomingWorkouts(
+      upcomingResult.status === "fulfilled" ? upcomingResult.value : [],
+    );
 
     const failures = [
       activitiesResult,
       analyticsResult,
-      raceResult,
+      dashboardResult,
       dailyResult,
       sportTypesResult,
+      upcomingResult,
     ]
       .filter((result) => result.status === "rejected")
       .map((result) => toErrorMessage(result.reason));
@@ -235,9 +266,10 @@ export default function App() {
     const allFailed = [
       activitiesResult,
       analyticsResult,
-      raceResult,
+      dashboardResult,
       dailyResult,
       sportTypesResult,
+      upcomingResult,
     ].every((result) => result.status === "rejected");
 
     if (allFailed) {
@@ -310,10 +342,11 @@ export default function App() {
       .catch(() => undefined);
 
     return api.onYouTubeJobsUpdate((jobs: DownloadJob[]) => {
-      const hasNewlyCompleted = jobs.some(
+      const newlyCompleted = jobs.filter(
         (job) =>
           job.status === "completed" && !completedJobIdsRef.current.has(job.id),
       );
+      const hasNewlyCompleted = newlyCompleted.length > 0;
 
       for (const job of jobs) {
         if (job.status === "completed") {
@@ -325,6 +358,29 @@ export default function App() {
 
       if (hasNewlyCompleted) {
         void refreshAll();
+
+        if (
+          autoTransferRef.current &&
+          watchConnectedRef.current &&
+          api
+        ) {
+          void (async () => {
+            let transferred = 0;
+            for (const job of newlyCompleted) {
+              for (const track of job.tracks) {
+                await api.transferLocalTrack(track.id);
+                transferred += 1;
+              }
+            }
+
+            if (transferred > 0) {
+              setMessage(
+                `${transferred} track(s) downloaded and transferred.`,
+              );
+              await refreshAll();
+            }
+          })();
+        }
       }
     });
   }, [api, refreshAll]);
@@ -338,20 +394,30 @@ export default function App() {
   }, [api, selectedSpotifyPlaylistId, spotifyStatus?.authenticated]);
 
   const storage = useMemo(() => {
+    if (!watchStatus?.connected) {
+      return null;
+    }
+
     const trackBytes =
-      watchStatus?.tracks.reduce(
+      watchStatus.tracks.reduce(
         (total, track) => total + track.sizeBytes,
         0,
       ) ?? 0;
     const presentation = getWatchPresentation(watchStatus);
-    const totalBytes = watchStatus?.totalBytes ?? presentation.fallbackBytes;
-    const usedBytes = watchStatus?.usedBytes ?? trackBytes;
+    const totalBytes =
+      watchStatus.totalBytes ?? presentation.fallbackBytes ?? 0;
+
+    if (totalBytes <= 0) {
+      return null;
+    }
+
+    const usedBytes = watchStatus.usedBytes ?? trackBytes;
     return {
       totalBytes,
       usedBytes,
-      freeBytes: watchStatus?.freeBytes,
+      freeBytes: watchStatus.freeBytes,
       percent: Math.min(100, Math.round((usedBytes / totalBytes) * 100)),
-      capacityLabel: presentation.capacityLabel,
+      capacityLabel: presentation.capacityLabel ?? "Storage unavailable",
     };
   }, [watchStatus]);
 
@@ -609,33 +675,29 @@ export default function App() {
       return;
     }
 
-    setBusy("download");
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl) {
+      return;
+    }
+
     setError(null);
     setMessage(null);
-    setLastOutput([]);
 
     try {
-      const result = await api.downloadAudio(url);
-      setLastOutput(result.output);
-      setDownloads(await api.listDownloads());
-
-      if (autoTransfer && watchStatus?.connected) {
-        for (const track of result.tracks) {
-          await api.transferLocalTrack(track.id);
-        }
-        setMessage(
-          `${result.tracks.length} track(s) downloaded and transferred.`,
-        );
-      } else {
-        setMessage(`${result.tracks.length} track(s) downloaded.`);
+      const jobs = await api.enqueueYouTubeDownloads([{ url: trimmedUrl }]);
+      if (jobs.length === 0) {
+        setMessage("That download is already queued.");
+        return;
       }
 
       setUrl("");
-      await refreshAll();
+      setMessage(
+        autoTransfer && watchStatus?.connected
+          ? "Download queued. Tracks will auto-transfer when ready."
+          : "Download queued.",
+      );
     } catch (caught) {
       setError(toErrorMessage(caught));
-    } finally {
-      setBusy(null);
     }
   }
 
@@ -684,6 +746,18 @@ export default function App() {
       setMessage(
         `Queued ${jobs.length} download${jobs.length === 1 ? "" : "s"}. Keep browsing — they run in the background.`,
       );
+    } catch (caught) {
+      setError(toErrorMessage(caught));
+    }
+  }
+
+  async function handleCancelYouTubeJob(id: string) {
+    if (!api) {
+      return;
+    }
+
+    try {
+      setYoutubeJobs(await api.cancelYouTubeJob(id));
     } catch (caught) {
       setError(toErrorMessage(caught));
     }
@@ -738,18 +812,11 @@ export default function App() {
       return;
     }
 
-    const watchNames = new Set(
-      (watchStatus?.tracks ?? []).map((track) =>
-        localTrackFileName(track.name),
-      ),
+    const watchConnected = Boolean(watchStatus?.connected);
+    const watchTracks = watchStatus?.tracks ?? [];
+    const pending = downloads.filter(
+      (track) => !isLocalTrackOnWatch(track, watchTracks, watchConnected),
     );
-    const pending = downloads.filter((track) => {
-      if (track.transferredAt) {
-        return false;
-      }
-
-      return !watchNames.has(localTrackFileName(track.filePath));
-    });
     if (pending.length === 0) {
       return;
     }
@@ -782,8 +849,45 @@ export default function App() {
     setMessage(null);
 
     try {
-      setWatchStatus(await api.deleteWatchTrack(track.relativePath));
+      await api.deleteWatchTrack(track.relativePath);
+      await refreshAll();
       setMessage("Track deleted from the watch.");
+    } catch (caught) {
+      setError(toErrorMessage(caught));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleDeleteWatchTracks(tracks: WatchTrack[]) {
+    if (!api || tracks.length === 0) {
+      return;
+    }
+
+    const prompt =
+      tracks.length === 1
+        ? `Delete "${tracks[0].name}" from the watch?`
+        : `Delete ${tracks.length} tracks from the watch?`;
+
+    if (!window.confirm(prompt)) {
+      return;
+    }
+
+    setBusy("delete-watch-bulk");
+    setError(null);
+    setMessage(null);
+
+    try {
+      for (const track of tracks) {
+        await api.deleteWatchTrack(track.relativePath);
+      }
+
+      await refreshAll();
+      setMessage(
+        tracks.length === 1
+          ? "Track deleted from the watch."
+          : `${tracks.length} tracks deleted from the watch.`,
+      );
     } catch (caught) {
       setError(toErrorMessage(caught));
     } finally {
@@ -852,7 +956,7 @@ export default function App() {
   const trainingHubSnapshot = useMemo<TrainingHubSnapshot | null>(() => {
     if (
       !trainingHubAnalytics &&
-      !trainingHubRacePredictor &&
+      !trainingHubDashboard &&
       !trainingHubDailyMetrics
     ) {
       return null;
@@ -860,10 +964,10 @@ export default function App() {
 
     return buildTrainingHubSnapshot(
       trainingHubAnalytics,
-      trainingHubRacePredictor,
+      trainingHubDashboard,
       trainingHubDailyMetrics,
     );
-  }, [trainingHubAnalytics, trainingHubRacePredictor, trainingHubDailyMetrics]);
+  }, [trainingHubAnalytics, trainingHubDashboard, trainingHubDailyMetrics]);
 
   function openMediaTab(tab: MediaTab) {
     setActiveView("media");
@@ -972,7 +1076,11 @@ export default function App() {
                 storage={storage}
                 watchConnected={Boolean(watchStatus?.connected)}
                 busy={busy}
+                jobs={youtubeJobs}
                 onDownload={handleDownload}
+                onCancelJob={handleCancelYouTubeJob}
+                onClearJob={handleClearYouTubeJob}
+                onClearCompletedJobs={handleClearCompletedYouTubeJobs}
                 onTransfer={handleTransfer}
                 onDeleteDownload={handleDeleteDownload}
                 onOpenLibrary={() => openMediaTab("library")}
@@ -997,6 +1105,7 @@ export default function App() {
                     onDeleteDownload={handleDeleteDownload}
                     onDeleteDownloads={handleDeleteDownloads}
                     onDeleteWatchTrack={handleDeleteWatchTrack}
+                    onDeleteWatchTracks={handleDeleteWatchTracks}
                   />
                 ) : activeMediaTab === "youtube" ? (
                   <YouTubeBrowserView
@@ -1011,6 +1120,7 @@ export default function App() {
                     jobs={youtubeJobs}
                     onVisit={handleYouTubeVisit}
                     onDownload={handleYouTubeDownload}
+                    onCancelJob={handleCancelYouTubeJob}
                     onClearJob={handleClearYouTubeJob}
                     onClearCompletedJobs={handleClearCompletedYouTubeJobs}
                   />
@@ -1041,6 +1151,7 @@ export default function App() {
                 email={trainingHubEmail}
                 password={trainingHubPassword}
                 activities={trainingHubActivities}
+                upcomingWorkouts={trainingHubUpcomingWorkouts}
                 snapshot={trainingHubSnapshot}
                 sportTypes={trainingHubSportTypes}
                 activityDetail={trainingHubActivityDetail}
@@ -1267,10 +1378,14 @@ interface MediaOverviewTabProps {
     freeBytes?: number;
     percent: number;
     capacityLabel: string;
-  };
+  } | null;
   watchConnected: boolean;
   busy: string | null;
+  jobs: DownloadJob[];
   onDownload: (event: FormEvent<HTMLFormElement>) => void;
+  onCancelJob: (id: string) => void;
+  onClearJob: (id: string) => void;
+  onClearCompletedJobs: () => void;
   onTransfer: (id: string) => void;
   onDeleteDownload: (track: LocalTrack) => void;
   onOpenLibrary: () => void;
@@ -1289,7 +1404,11 @@ function MediaOverviewTab({
   storage,
   watchConnected,
   busy,
+  jobs,
   onDownload,
+  onCancelJob,
+  onClearJob,
+  onClearCompletedJobs,
   onTransfer,
   onDeleteDownload,
   onOpenLibrary,
@@ -1297,6 +1416,7 @@ function MediaOverviewTab({
   onOpenSpotify,
   onRefresh,
 }: MediaOverviewTabProps) {
+  const greeting = useTimeOfDayGreeting();
   const urlInputRef = useRef<HTMLInputElement>(null);
   const watchTracks = watchStatus?.tracks ?? [];
   const recentDownloads = useMemo(
@@ -1311,20 +1431,31 @@ function MediaOverviewTab({
     [downloads],
   );
   const transferredCount = useMemo(
-    () => downloads.filter((track) => track.transferredAt).length,
-    [downloads],
+    () =>
+      downloads.filter((track) =>
+        isLocalTrackOnWatch(track, watchTracks, watchConnected),
+      ).length,
+    [downloads, watchTracks, watchConnected],
   );
   const librarySize = useMemo(
     () => downloads.reduce((total, track) => total + track.sizeBytes, 0),
     [downloads],
   );
   const watchPresentation = getWatchPresentation(watchStatus);
+  const statusEyebrow =
+    watchPresentation.state === "disconnected" ? "Watch" : watchPresentation.displayName;
+  const statusTitle =
+    watchPresentation.state === "disconnected"
+      ? "Not connected"
+      : watchPresentation.state === "connected-known"
+        ? watchPresentation.displayName
+        : (watchStatus?.name ?? "Connected");
 
   return (
     <div className="dashboard">
       <header className="dashboard-welcome dashboard-block">
         <div>
-          <h1 className="dashboard-greeting">{getTimeOfDayGreeting()}</h1>
+          <h1 className="dashboard-greeting">{greeting}</h1>
           <p className="dashboard-subtitle">{watchPresentation.companion}</p>
         </div>
         <button
@@ -1342,24 +1473,30 @@ function MediaOverviewTab({
         </button>
       </header>
 
-      <div className="dashboard-hero-row dashboard-block">
-        <section className="dashboard-hero panel">
-          <img
-            src={watchPresentation.heroImage}
-            alt={watchPresentation.heroAlt}
-            className="dashboard-hero-image"
-          />
-        </section>
+      <div
+        className={[
+          "dashboard-hero-row",
+          "dashboard-block",
+          !watchPresentation.heroImage && "dashboard-hero-row--no-hero",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        {watchPresentation.heroImage ? (
+          <section className="dashboard-hero panel">
+            <img
+              src={watchPresentation.heroImage}
+              alt={watchPresentation.heroAlt ?? ""}
+              className="dashboard-hero-image"
+            />
+          </section>
+        ) : null}
 
         <section className="dashboard-status panel">
           <div className="dashboard-status-header">
             <div>
-              <p className="eyebrow">{watchPresentation.displayName}</p>
-              <h2>
-                {watchConnected
-                  ? (watchStatus?.name ?? "Connected")
-                  : "Not connected"}
-              </h2>
+              <p className="eyebrow">{statusEyebrow}</p>
+              <h2>{statusTitle}</h2>
             </div>
             <div
               className={`connection-pill${watchConnected ? " connected" : ""}`}
@@ -1369,22 +1506,24 @@ function MediaOverviewTab({
             </div>
           </div>
 
-          <StorageRing
-            percent={storage.percent}
-            usedBytes={storage.usedBytes}
-          />
+          {watchConnected && storage ? (
+            <>
+              <StorageRing
+                percent={storage.percent}
+                usedBytes={storage.usedBytes}
+              />
 
-          <p className="storage-ring-caption">
-            {formatBytes(storage.usedBytes)} of{" "}
-            {formatBytes(storage.totalBytes)}
-            {storage.freeBytes !== undefined
-              ? ` · ${formatBytes(storage.freeBytes)} free`
-              : ` · ${formatBytes(storage.totalBytes)} capacity`}
-          </p>
-
-          {!watchConnected ? (
+              <p className="storage-ring-caption">
+                {formatBytes(storage.usedBytes)} of{" "}
+                {formatBytes(storage.totalBytes)}
+                {storage.freeBytes !== undefined
+                  ? ` · ${formatBytes(storage.freeBytes)} free`
+                  : ` · ${formatBytes(storage.totalBytes)} capacity`}
+              </p>
+            </>
+          ) : (
             <p className="connect-hint">{watchPresentation.connectHint}</p>
-          ) : null}
+          )}
         </section>
       </div>
 
@@ -1451,7 +1590,6 @@ function MediaOverviewTab({
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
                 placeholder="Paste a YouTube URL or playlist…"
-                disabled={busy === "download"}
               />
             </div>
           </label>
@@ -1468,16 +1606,23 @@ function MediaOverviewTab({
           <button
             className="primary-button"
             type="submit"
-            disabled={!url.trim() || busy === "download"}
+            disabled={!url.trim()}
           >
-            {busy === "download" ? (
-              <Loader2 className="spin" size={18} aria-hidden="true" />
-            ) : (
-              <Download size={18} aria-hidden="true" />
-            )}
+            <Download size={18} aria-hidden="true" />
             Download MP3
           </button>
         </form>
+
+        {jobs.length > 0 ? (
+          <YouTubeJobsList
+            jobs={jobs}
+            onCancelJob={onCancelJob}
+            onClearJob={onClearJob}
+            onClearCompletedJobs={onClearCompletedJobs}
+            emptyMessage="No downloads yet"
+            compact
+          />
+        ) : null}
       </section>
 
       {downloads.length === 0 ? (
@@ -1547,6 +1692,7 @@ interface MediaLibraryTabProps {
   onDeleteDownload: (track: LocalTrack) => void;
   onDeleteDownloads: (tracks: LocalTrack[]) => void;
   onDeleteWatchTrack: (track: WatchTrack) => void;
+  onDeleteWatchTracks: (tracks: WatchTrack[]) => void;
 }
 
 function MediaLibraryTab({
@@ -1560,13 +1706,13 @@ function MediaLibraryTab({
   onDeleteDownload,
   onDeleteDownloads,
   onDeleteWatchTrack,
+  onDeleteWatchTracks,
 }: MediaLibraryTabProps) {
   const watchTracks = watchStatus?.tracks ?? [];
-  const libraryEntries = useMemo(
-    () => buildLibraryEntries(downloads, watchTracks),
-    [downloads, watchTracks],
-  );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [selectedWatchPaths, setSelectedWatchPaths] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   useEffect(() => {
     setSelectedIds((current) => {
@@ -1577,19 +1723,24 @@ function MediaLibraryTab({
     });
   }, [downloads]);
 
-  const selectedTracks = useMemo(
-    () => downloads.filter((track) => selectedIds.has(track.id)),
-    [downloads, selectedIds],
-  );
-  const allSelected =
+  useEffect(() => {
+    setSelectedWatchPaths((current) => {
+      const next = new Set(
+        [...current].filter((path) =>
+          watchTracks.some((track) => track.relativePath === path),
+        ),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [watchTracks]);
+
+  const allLocalSelected =
     downloads.length > 0 && selectedIds.size === downloads.length;
-  const someSelected = selectedIds.size > 0;
+  const allWatchSelected =
+    watchTracks.length > 0 && selectedWatchPaths.size === watchTracks.length;
   const pendingTransferCount = useMemo(
-    () =>
-      libraryEntries.filter(
-        (entry) => entry.kind === "local" && !entry.onWatch,
-      ).length,
-    [libraryEntries],
+    () => countPendingTransfers(downloads, watchTracks, watchConnected),
+    [downloads, watchTracks, watchConnected],
   );
   const canTransferAll = watchConnected && pendingTransferCount > 0;
 
@@ -1605,7 +1756,7 @@ function MediaLibraryTab({
     });
   }
 
-  function toggleSelectAll() {
+  function toggleSelectAllLocal() {
     setSelectedIds((current) => {
       if (downloads.length === 0) {
         return current;
@@ -1619,75 +1770,80 @@ function MediaLibraryTab({
     });
   }
 
-  function handleBulkDelete() {
-    if (selectedTracks.length === 0) {
-      return;
-    }
+  function toggleSelectWatch(relativePath: string) {
+    setSelectedWatchPaths((current) => {
+      const next = new Set(current);
+      if (next.has(relativePath)) {
+        next.delete(relativePath);
+      } else {
+        next.add(relativePath);
+      }
+      return next;
+    });
+  }
 
-    onDeleteDownloads(selectedTracks);
+  function toggleSelectAllWatch() {
+    setSelectedWatchPaths((current) => {
+      if (watchTracks.length === 0) {
+        return current;
+      }
+
+      if (current.size === watchTracks.length) {
+        return new Set();
+      }
+
+      return new Set(watchTracks.map((track) => track.relativePath));
+    });
+  }
+
+  function handleLocalBulkDelete(tracks: LocalTrack[]) {
+    onDeleteDownloads(tracks);
     setSelectedIds(new Set());
+  }
+
+  function handleWatchBulkDelete(tracks: WatchTrack[]) {
+    onDeleteWatchTracks(tracks);
+    setSelectedWatchPaths(new Set());
   }
 
   return (
     <div className="stack stack-fill">
-      <section className="panel panel-flex">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Library</p>
-            <h2>
-              {someSelected
-                ? `${selectedIds.size} selected · ${libraryEntries.length} track(s)`
-                : `${libraryEntries.length} track(s)`}
-            </h2>
-          </div>
-          <div className="section-heading-actions">
-            {someSelected ? (
-              <button
-                className="secondary-button danger-button"
-                type="button"
-                disabled={busy === "delete-local-bulk"}
-                onClick={handleBulkDelete}
-              >
-                {busy === "delete-local-bulk" ? (
-                  <Loader2 className="spin" size={17} aria-hidden="true" />
-                ) : (
-                  <Trash2 size={17} aria-hidden="true" />
-                )}
-                Delete selected
-              </button>
-            ) : canTransferAll ? (
-              <button
-                className="primary-button"
-                type="button"
-                disabled={busy?.startsWith("transfer") ?? false}
-                onClick={onTransferAll}
-              >
-                {busy === "transfer-all" ? (
-                  <Loader2 className="spin" size={17} aria-hidden="true" />
-                ) : (
-                  <Upload size={17} aria-hidden="true" />
-                )}
-                Transfer all to watch
-              </button>
-            ) : (
-              <span className={watchConnected ? "badge ready" : "badge"}>
-                {watchConnected ? "Watch ready" : "Connect watch"}
-              </span>
-            )}
-          </div>
-        </div>
-
-        <TrackTable
-          entries={libraryEntries}
-          busy={busy}
+      <section className="panel panel-flex library-sync-panel">
+        <LibrarySyncLayout
+          pendingCount={pendingTransferCount}
+          localCount={downloads.length}
           watchConnected={watchConnected}
-          onTransfer={onTransfer}
-          onDeleteDownload={onDeleteDownload}
-          onDeleteWatchTrack={onDeleteWatchTrack}
-          selectedIds={selectedIds}
-          onToggleSelect={toggleSelect}
-          onToggleSelectAll={toggleSelectAll}
-          allSelected={allSelected}
+          localPanel={
+            <LocalLibraryPanel
+              downloads={downloads}
+              watchTracks={watchTracks}
+              watchConnected={watchConnected}
+              busy={busy}
+              selectedIds={selectedIds}
+              allSelected={allLocalSelected}
+              pendingTransferCount={pendingTransferCount}
+              canTransferAll={canTransferAll}
+              onToggleSelect={toggleSelect}
+              onToggleSelectAll={toggleSelectAllLocal}
+              onTransfer={onTransfer}
+              onTransferAll={onTransferAll}
+              onDeleteDownload={onDeleteDownload}
+              onDeleteDownloads={handleLocalBulkDelete}
+            />
+          }
+          watchPanel={
+            <WatchLibraryPanel
+              watchStatus={watchStatus}
+              watchConnected={watchConnected}
+              busy={busy}
+              selectedPaths={selectedWatchPaths}
+              allSelected={allWatchSelected}
+              onToggleSelect={toggleSelectWatch}
+              onToggleSelectAll={toggleSelectAllWatch}
+              onDeleteWatchTrack={onDeleteWatchTrack}
+              onDeleteWatchTracks={handleWatchBulkDelete}
+            />
+          }
         />
       </section>
 
@@ -1735,6 +1891,155 @@ interface WebviewFailLoadEvent extends Event {
   isMainFrame?: boolean;
 }
 
+interface YouTubeJobsListProps {
+  jobs: DownloadJob[];
+  onCancelJob: (id: string) => void;
+  onClearJob: (id: string) => void;
+  onClearCompletedJobs?: () => void;
+  emptyMessage?: string;
+  compact?: boolean;
+}
+
+function YouTubeJobsList({
+  jobs,
+  onCancelJob,
+  onClearJob,
+  onClearCompletedJobs,
+  emptyMessage = "No downloads yet",
+  compact = false,
+}: YouTubeJobsListProps) {
+  const hasActiveDownloads = jobs.some((job) => job.status === "downloading");
+  const hasFinishedJobs = jobs.some(
+    (job) =>
+      job.status === "completed" ||
+      job.status === "failed" ||
+      job.status === "cancelled",
+  );
+  const [, setNowTick] = useState(0);
+
+  useEffect(() => {
+    if (!hasActiveDownloads) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setNowTick(Date.now());
+    }, 2000);
+
+    return () => window.clearInterval(interval);
+  }, [hasActiveDownloads]);
+
+  return (
+    <div
+      className={
+        compact ? "youtube-jobs-panel youtube-jobs-panel--compact" : undefined
+      }
+    >
+      {compact && jobs.length > 0 ? (
+        <div className="youtube-downloads-header">
+          <div className="youtube-downloads-title">
+            <Download size={16} aria-hidden="true" />
+            <span>Downloads</span>
+          </div>
+          {hasFinishedJobs && onClearCompletedJobs ? (
+            <button
+              className="text-button"
+              type="button"
+              onClick={onClearCompletedJobs}
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="youtube-jobs-list">
+        {jobs.length === 0 ? (
+          <div className="youtube-downloads-empty">
+            <Download size={26} aria-hidden="true" />
+            <strong>{emptyMessage}</strong>
+          </div>
+        ) : (
+          jobs.map((job) => (
+            <div key={job.id} className={`youtube-job-item ${job.status}`}>
+              <div className="youtube-job-head">
+                <span className={`badge youtube-job-badge ${job.status}`}>
+                  {job.status === "downloading" ? (
+                    <Loader2 className="spin" size={13} aria-hidden="true" />
+                  ) : null}
+                  {formatJobStatus(job)}
+                </span>
+                {job.status === "queued" || job.status === "downloading" ? (
+                  <button
+                    className="text-button"
+                    type="button"
+                    onClick={() => onCancelJob(job.id)}
+                  >
+                    Cancel
+                  </button>
+                ) : null}
+                {job.status === "completed" ||
+                job.status === "failed" ||
+                job.status === "cancelled" ? (
+                  <button
+                    className="icon-button compact"
+                    type="button"
+                    title="Dismiss"
+                    onClick={() => onClearJob(job.id)}
+                  >
+                    <X size={14} aria-hidden="true" />
+                  </button>
+                ) : null}
+              </div>
+              <strong title={job.title}>{job.title}</strong>
+              {job.status === "downloading" &&
+              job.entryType === "playlist" &&
+              job.currentTrackTitle ? (
+                <span
+                  className="youtube-job-meta"
+                  title={job.currentTrackTitle}
+                >
+                  {job.currentTrackTitle}
+                </span>
+              ) : null}
+              {job.status === "downloading" ? (
+                <>
+                  <span className="youtube-job-activity">
+                    {formatJobActivity(job)}
+                  </span>
+                  {isJobStalled(job) ? (
+                    <span className="youtube-job-stall">
+                      No recent activity — may still be working
+                    </span>
+                  ) : null}
+                  <div className="youtube-job-progress">
+                    <div
+                      className="youtube-job-progress-bar"
+                      style={{ width: `${Math.round(job.progress)}%` }}
+                    />
+                  </div>
+                  {job.trackProgress !== undefined &&
+                  job.entryType === "playlist" ? (
+                    <span className="youtube-job-meta">
+                      {Math.round(job.trackProgress)}% of current track
+                    </span>
+                  ) : null}
+                </>
+              ) : null}
+              {job.status === "failed" && job.error ? (
+                <span className="youtube-job-error">{job.error}</span>
+              ) : null}
+              {job.status === "completed" && job.warning ? (
+                <span className="youtube-job-warning">{job.warning}</span>
+              ) : null}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface YouTubeBrowserViewProps {
   browserUrl: string;
   setBrowserUrl: (url: string) => void;
@@ -1747,6 +2052,7 @@ interface YouTubeBrowserViewProps {
   jobs: DownloadJob[];
   onVisit: (url: string, title?: string) => void;
   onDownload: (items: YouTubeDownloadItem | YouTubeDownloadItem[]) => void;
+  onCancelJob: (id: string) => void;
   onClearJob: (id: string) => void;
   onClearCompletedJobs: () => void;
 }
@@ -1763,6 +2069,7 @@ function YouTubeBrowserView({
   jobs,
   onVisit,
   onDownload,
+  onCancelJob,
   onClearJob,
   onClearCompletedJobs,
 }: YouTubeBrowserViewProps) {
@@ -1788,7 +2095,10 @@ function YouTubeBrowserView({
     (job) => job.status === "queued" || job.status === "downloading",
   ).length;
   const hasFinishedJobs = jobs.some(
-    (job) => job.status === "completed" || job.status === "failed",
+    (job) =>
+      job.status === "completed" ||
+      job.status === "failed" ||
+      job.status === "cancelled",
   );
 
   function reportLoadError(caught: unknown) {
@@ -2183,56 +2493,12 @@ function YouTubeBrowserView({
             ) : null}
           </header>
 
-          <div className="youtube-jobs-list">
-            {jobs.length === 0 ? (
-              <div className="youtube-downloads-empty">
-                <Download size={26} aria-hidden="true" />
-                <strong>No downloads yet</strong>
-                <span>
-                  Search a video and tap the green MP3 button on any result.
-                </span>
-              </div>
-            ) : (
-              jobs.map((job) => (
-                <div key={job.id} className={`youtube-job-item ${job.status}`}>
-                  <div className="youtube-job-head">
-                    <span className={`badge youtube-job-badge ${job.status}`}>
-                      {job.status === "downloading" ? (
-                        <Loader2
-                          className="spin"
-                          size={13}
-                          aria-hidden="true"
-                        />
-                      ) : null}
-                      {formatJobStatus(job)}
-                    </span>
-                    {job.status === "completed" || job.status === "failed" ? (
-                      <button
-                        className="icon-button compact"
-                        type="button"
-                        title="Dismiss"
-                        onClick={() => onClearJob(job.id)}
-                      >
-                        <X size={14} aria-hidden="true" />
-                      </button>
-                    ) : null}
-                  </div>
-                  <strong title={job.title}>{job.title}</strong>
-                  {job.status === "downloading" ? (
-                    <div className="youtube-job-progress">
-                      <div
-                        className="youtube-job-progress-bar"
-                        style={{ width: `${Math.round(job.progress)}%` }}
-                      />
-                    </div>
-                  ) : null}
-                  {job.status === "failed" && job.error ? (
-                    <span className="youtube-job-error">{job.error}</span>
-                  ) : null}
-                </div>
-              ))
-            )}
-          </div>
+          <YouTubeJobsList
+            jobs={jobs}
+            onCancelJob={onCancelJob}
+            onClearJob={onClearJob}
+            emptyMessage="Search a video and tap the green MP3 button on any result."
+          />
         </aside>
       </section>
     </div>
@@ -2544,7 +2810,7 @@ interface WatchViewProps {
     freeBytes?: number;
     percent: number;
     capacityLabel: string;
-  };
+  } | null;
   busy: string | null;
   onDeleteWatchTrack: (track: LocalTrackLike) => void;
 }
@@ -2555,8 +2821,15 @@ function WatchView({
   busy,
   onDeleteWatchTrack,
 }: WatchViewProps) {
+  const watchPresentation = getWatchPresentation(watchStatus);
   const connected = Boolean(watchStatus?.connected);
   const tracks = watchStatus?.tracks ?? [];
+  const storageTitle =
+    watchPresentation.state === "connected-known"
+      ? watchPresentation.displayName
+      : connected
+        ? (watchStatus?.name ?? "COROS Watch")
+        : "No watch connected";
 
   return (
     <div className="stack">
@@ -2564,28 +2837,34 @@ function WatchView({
         <div className="storage-row">
           <div>
             <p className="eyebrow">Storage</p>
-            <h2>
-              {connected
-                ? (watchStatus?.name ?? "COROS Watch")
-                : "No watch connected"}
-            </h2>
+            <h2>{storageTitle}</h2>
           </div>
-          <div className="storage-numbers">
-            <strong>{formatBytes(storage.usedBytes)}</strong>
-            <span>of {formatBytes(storage.totalBytes)}</span>
-          </div>
+          {connected && storage ? (
+            <div className="storage-numbers">
+              <strong>{formatBytes(storage.usedBytes)}</strong>
+              <span>of {formatBytes(storage.totalBytes)}</span>
+            </div>
+          ) : null}
         </div>
-        <div className="storage-bar" aria-label="Watch storage usage">
-          <span style={{ width: `${storage.percent}%` }} />
-        </div>
-        <div className="storage-meta">
-          <span>{storage.percent}% used</span>
-          <span>
-            {storage.freeBytes !== undefined
-              ? `${formatBytes(storage.freeBytes)} free`
-              : storage.capacityLabel}
-          </span>
-        </div>
+        {connected && storage ? (
+          <>
+            <div className="storage-bar" aria-label="Watch storage usage">
+              <span style={{ width: `${storage.percent}%` }} />
+            </div>
+            <div className="storage-meta">
+              <span>{storage.percent}% used</span>
+              <span>
+                {storage.freeBytes !== undefined
+                  ? `${formatBytes(storage.freeBytes)} free`
+                  : storage.capacityLabel}
+              </span>
+            </div>
+          </>
+        ) : (
+          <p className="connect-hint">
+            Connect your COROS watch via USB to sync music
+          </p>
+        )}
       </section>
 
       <section className="panel">
@@ -2604,186 +2883,6 @@ function WatchView({
           onDeleteWatchTrack={onDeleteWatchTrack}
         />
       </section>
-    </div>
-  );
-}
-
-interface LibraryEntryLocal {
-  kind: "local";
-  track: LocalTrack;
-  onWatch: boolean;
-}
-
-interface LibraryEntryWatch {
-  kind: "watch";
-  track: WatchTrack;
-}
-
-type LibraryEntry = LibraryEntryLocal | LibraryEntryWatch;
-
-interface TrackTableProps {
-  entries: LibraryEntry[];
-  busy: string | null;
-  watchConnected: boolean;
-  onTransfer: (id: string) => void;
-  onDeleteDownload: (track: LocalTrack) => void;
-  onDeleteWatchTrack: (track: WatchTrack) => void;
-  selectedIds?: Set<string>;
-  onToggleSelect?: (id: string) => void;
-  onToggleSelectAll?: () => void;
-  allSelected?: boolean;
-}
-
-function TrackTable({
-  entries,
-  busy,
-  watchConnected,
-  onTransfer,
-  onDeleteDownload,
-  onDeleteWatchTrack,
-  selectedIds,
-  onToggleSelect,
-  onToggleSelectAll,
-  allSelected = false,
-}: TrackTableProps) {
-  const selectable = Boolean(
-    selectedIds && onToggleSelect && onToggleSelectAll,
-  );
-
-  if (entries.length === 0) {
-    return <EmptyState title="No tracks in library" />;
-  }
-
-  return (
-    <div className="table-shell">
-      <table>
-        <thead>
-          <tr>
-            {selectable ? (
-              <th className="select-column">
-                <input
-                  type="checkbox"
-                  aria-label="Select all local tracks"
-                  checked={allSelected}
-                  onChange={onToggleSelectAll}
-                />
-              </th>
-            ) : null}
-            <th>Track</th>
-            <th>Size</th>
-            <th>Added</th>
-            <th>Watch</th>
-            <th aria-label="Actions" />
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map((entry) => {
-            if (entry.kind === "watch") {
-              const track = entry.track;
-
-              return (
-                <tr key={`watch:${track.relativePath}`}>
-                  {selectable ? <td className="select-column" /> : null}
-                  <td>
-                    <strong>{track.name}</strong>
-                    <span>{track.relativePath}</span>
-                  </td>
-                  <td>{formatBytes(track.sizeBytes)}</td>
-                  <td>{formatDate(track.modifiedAt)}</td>
-                  <td>
-                    <span className="badge ready">On watch</span>
-                  </td>
-                  <td>
-                    <div className="row-actions">
-                      <button
-                        className="icon-button danger"
-                        type="button"
-                        title="Delete from watch"
-                        disabled={
-                          !watchConnected ||
-                          busy === `delete-watch:${track.relativePath}`
-                        }
-                        onClick={() => onDeleteWatchTrack(track)}
-                      >
-                        <Trash2 size={17} aria-hidden="true" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            }
-
-            const track = entry.track;
-            const selected = selectable ? selectedIds?.has(track.id) : false;
-
-            return (
-              <tr key={track.id} className={selected ? "is-selected" : ""}>
-                {selectable ? (
-                  <td className="select-column">
-                    <input
-                      type="checkbox"
-                      aria-label={`Select ${track.title}`}
-                      checked={selected}
-                      onChange={() => onToggleSelect?.(track.id)}
-                    />
-                  </td>
-                ) : null}
-                <td>
-                  <strong>{track.title}</strong>
-                  <span>{track.filePath}</span>
-                </td>
-                <td>{formatBytes(track.sizeBytes)}</td>
-                <td>{formatDate(track.createdAt)}</td>
-                <td>
-                  <span
-                    className={entry.onWatch ? "badge ready" : "badge"}
-                  >
-                    {entry.onWatch ? "On watch" : "Local only"}
-                  </span>
-                </td>
-                <td>
-                  <div className="row-actions">
-                    <button
-                      className="icon-button"
-                      type="button"
-                      title="Transfer to watch"
-                      disabled={
-                        !watchConnected ||
-                        entry.onWatch ||
-                        busy === `transfer:${track.id}` ||
-                        busy === "transfer-all"
-                      }
-                      onClick={() => onTransfer(track.id)}
-                    >
-                      {busy === `transfer:${track.id}` ? (
-                        <Loader2
-                          className="spin"
-                          size={17}
-                          aria-hidden="true"
-                        />
-                      ) : (
-                        <Upload size={17} aria-hidden="true" />
-                      )}
-                    </button>
-                    <button
-                      className="icon-button danger"
-                      type="button"
-                      title="Delete local track"
-                      disabled={
-                        busy === `delete-local:${track.id}` ||
-                        busy === "delete-local-bulk"
-                      }
-                      onClick={() => onDeleteDownload(track)}
-                    >
-                      <Trash2 size={17} aria-hidden="true" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
     </div>
   );
 }
@@ -2984,20 +3083,29 @@ function getYouTubeDownloadTarget(value: string): YouTubeDownloadTarget | null {
     }
 
     const videoId = parsed.searchParams.get("v");
-    if (parsed.pathname === "/watch" && videoId) {
-      return {
-        kind: "Video",
-        label: "Download MP3",
-        url: `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
-      };
-    }
-
     const playlistId = parsed.searchParams.get("list");
+
     if (parsed.pathname === "/playlist" && playlistId) {
       return {
         kind: "Playlist",
         label: "Download playlist",
         url: `https://www.youtube.com/playlist?list=${encodeURIComponent(playlistId)}`,
+      };
+    }
+
+    if (parsed.pathname === "/watch" && playlistId) {
+      return {
+        kind: "Playlist",
+        label: "Download playlist",
+        url: `https://www.youtube.com/playlist?list=${encodeURIComponent(playlistId)}`,
+      };
+    }
+
+    if (parsed.pathname === "/watch" && videoId) {
+      return {
+        kind: "Video",
+        label: "Download MP3",
+        url: `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
       };
     }
   } catch {
@@ -3259,14 +3367,65 @@ function formatJobStatus(job: DownloadJob): string {
   }
 
   if (job.status === "downloading") {
+    if (
+      job.entryType === "playlist" &&
+      job.trackIndex &&
+      job.trackTotal
+    ) {
+      return `Track ${job.trackIndex}/${job.trackTotal} · ${Math.round(job.progress)}%`;
+    }
+
     return `${Math.round(job.progress)}%`;
   }
 
   if (job.status === "completed") {
+    if (job.entryType === "playlist") {
+      const count = job.tracks.length || job.completedTrackCount || 0;
+      return count > 0 ? `Completed · ${count} tracks` : "Completed";
+    }
+
     return "Completed";
   }
 
+  if (job.status === "cancelled") {
+    return "Cancelled";
+  }
+
   return "Failed";
+}
+
+function formatJobActivity(job: DownloadJob): string {
+  if (job.activity) {
+    return job.activity;
+  }
+
+  switch (job.phase) {
+    case "starting":
+      return "Starting yt-dlp… (first run can take ~30s)";
+    case "converting":
+      return "Converting to MP3…";
+    case "between_tracks":
+      return "Preparing next track…";
+    case "downloading":
+      return "Downloading…";
+    default:
+      return "Working…";
+  }
+}
+
+function isJobStalled(job: DownloadJob): boolean {
+  if (job.status !== "downloading") {
+    return false;
+  }
+
+  const updatedAt = Date.parse(job.updatedAt);
+  if (!Number.isFinite(updatedAt)) {
+    return false;
+  }
+
+  const idleMs = Date.now() - updatedAt;
+  const thresholdMs = job.phase === "starting" ? 45_000 : 20_000;
+  return idleMs >= thresholdMs;
 }
 
 function viewTitle(view: View): string {
@@ -3290,20 +3449,6 @@ const TRACK_AVATAR_COLORS = [
   "#f97316",
 ];
 
-function getTimeOfDayGreeting(): string {
-  const hour = new Date().getHours();
-
-  if (hour < 12) {
-    return "Good morning";
-  }
-
-  if (hour < 17) {
-    return "Good afternoon";
-  }
-
-  return "Good evening";
-}
-
 function trackAvatarColor(title: string): string {
   let hash = 0;
 
@@ -3312,62 +3457,6 @@ function trackAvatarColor(title: string): string {
   }
 
   return TRACK_AVATAR_COLORS[hash];
-}
-
-function localTrackFileName(filePath: string): string {
-  const parts = filePath.split(/[/\\]/);
-  return parts[parts.length - 1]?.toLowerCase() ?? "";
-}
-
-function isLocalTrackOnWatch(
-  track: LocalTrack,
-  watchTracks: WatchTrack[],
-): boolean {
-  if (track.transferredAt) {
-    return true;
-  }
-
-  const localName = localTrackFileName(track.filePath);
-  if (!localName) {
-    return false;
-  }
-
-  return watchTracks.some(
-    (watchTrack) => localTrackFileName(watchTrack.name) === localName,
-  );
-}
-
-function watchOnlyTracks(
-  downloads: LocalTrack[],
-  watchTracks: WatchTrack[],
-): WatchTrack[] {
-  const localNames = new Set(
-    downloads.map((track) => localTrackFileName(track.filePath)).filter(Boolean),
-  );
-
-  return watchTracks.filter(
-    (track) => !localNames.has(localTrackFileName(track.name)),
-  );
-}
-
-function buildLibraryEntries(
-  downloads: LocalTrack[],
-  watchTracks: WatchTrack[],
-): LibraryEntry[] {
-  const localEntries: LibraryEntryLocal[] = downloads.map((track) => ({
-    kind: "local",
-    track,
-    onWatch: isLocalTrackOnWatch(track, watchTracks),
-  }));
-  const watchEntries: LibraryEntryWatch[] = watchOnlyTracks(
-    downloads,
-    watchTracks,
-  ).map((track) => ({
-    kind: "watch",
-    track,
-  }));
-
-  return [...localEntries, ...watchEntries];
 }
 
 function trackInitial(title: string): string {

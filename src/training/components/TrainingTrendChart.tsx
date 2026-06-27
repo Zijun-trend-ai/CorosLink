@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -20,7 +21,24 @@ interface TrainingTrendChartsProps {
   points: TrainingTrendPoint[];
 }
 
+function usePrefersReducedMotion() {
+  const [reducedMotion, setReducedMotion] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReducedMotion(media.matches);
+
+    update();
+    media.addEventListener("change", update);
+
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  return reducedMotion;
+}
+
 export function TrainingTrendCharts({ points }: TrainingTrendChartsProps) {
+  const reducedMotion = usePrefersReducedMotion();
   const loadPoints = points.filter((point) => point.trainingLoad !== undefined);
   const hrvPoints = points.filter(
     (point) => point.avgSleepHrv !== undefined || point.sleepHrvBase !== undefined
@@ -75,6 +93,8 @@ export function TrainingTrendCharts({ points }: TrainingTrendChartsProps) {
                   fill="url(#trainingLoadFill)"
                   strokeWidth={2}
                   dot={{ r: 3, fill: trainingChartColors.accent }}
+                  isAnimationActive={!reducedMotion}
+                  animationDuration={900}
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -117,6 +137,8 @@ export function TrainingTrendCharts({ points }: TrainingTrendChartsProps) {
                   strokeWidth={2}
                   dot={{ r: 3, fill: trainingChartColors.accent }}
                   connectNulls
+                  isAnimationActive={!reducedMotion}
+                  animationDuration={850}
                 />
                 <Line
                   type="monotone"
@@ -127,6 +149,8 @@ export function TrainingTrendCharts({ points }: TrainingTrendChartsProps) {
                   strokeDasharray="5 4"
                   dot={false}
                   connectNulls
+                  isAnimationActive={!reducedMotion}
+                  animationDuration={850}
                 />
               </LineChart>
             </ResponsiveContainer>

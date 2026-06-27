@@ -35,6 +35,7 @@ const {
   getRacePredictor,
   getSportTypeMap,
   getTrainingAnalytics,
+  getTrainingDashboard,
   getTrainingHubActivityDetail,
   getTrainingHubActivityFileUrl,
   getTrainingHubStatus,
@@ -114,6 +115,7 @@ function registerIpcHandlers() {
   );
   ipcMain.handle("trainingHub:getTrainingAnalytics", () => getTrainingAnalytics());
   ipcMain.handle("trainingHub:getRacePredictor", () => getRacePredictor());
+  ipcMain.handle("trainingHub:getDashboard", () => getTrainingDashboard());
   ipcMain.handle("trainingHub:getDailyMetrics", (_event, dateList) => getDailyMetrics(dateList));
   ipcMain.handle("trainingHub:getSportTypeMap", () => getSportTypeMap());
 }

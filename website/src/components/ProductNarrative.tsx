@@ -1,5 +1,7 @@
 import Image from "next/image";
 import { motion } from "motion/react";
+import { CorosFitnessMock } from "./CorosFitnessMock";
+import { SpotifySyncMock } from "./SpotifySyncMock";
 import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
 
 const viewport = { once: true, margin: "0px 0px -120px 0px" } as const;
@@ -83,17 +85,11 @@ export function ProductNarrative() {
           </motion.div>
 
           <motion.div
-            className="product-visual product-visual--full"
+            className="product-visual product-visual--full product-visual--sync"
             {...reveal}
             whileHover={reduced ? undefined : { y: -6 }}
           >
-            <Image
-              src="/showcase/music-flow.webp"
-              alt="Layered CorosLink music workflow showing YouTube, Spotify, and local library panels"
-              width={1900}
-              height={1120}
-              sizes="100vw"
-            />
+            <SpotifySyncMock />
           </motion.div>
 
           <motion.div
@@ -121,17 +117,11 @@ export function ProductNarrative() {
       <section className="feature-band feature-band--training">
         <div className="container narrative-grid">
           <motion.div
-            className="product-visual"
+            className="product-visual product-visual--fitness"
             {...reveal}
             whileHover={reduced ? undefined : { y: -6 }}
           >
-            <Image
-              src="/showcase/training-intelligence.webp"
-              alt="CorosLink training intelligence dashboard with recovery and training metrics"
-              width={1900}
-              height={1120}
-              sizes="(max-width: 900px) 100vw, 60vw"
-            />
+            <CorosFitnessMock />
           </motion.div>
 
           <motion.div className="narrative-copy" {...reveal}>
@@ -151,37 +141,6 @@ export function ProductNarrative() {
         </div>
       </section>
 
-      <motion.section className="trust-band" {...reveal}>
-        <motion.div
-          className="container trust-grid"
-          variants={stepContainer}
-          initial="hidden"
-          whileInView="show"
-          viewport={viewport}
-        >
-          <motion.article
-            variants={stepItem}
-            transition={{ duration: 0.56, ease: "easeOut" }}
-          >
-            <h3>Local-first by design</h3>
-            <p>Music, downloads, tokens, and library data stay on your machine.</p>
-          </motion.article>
-          <motion.article
-            variants={stepItem}
-            transition={{ duration: 0.56, ease: "easeOut" }}
-          >
-            <h3>Direct watch transfer</h3>
-            <p>USB-mounted Pace Pro storage gets treated as the destination.</p>
-          </motion.article>
-          <motion.article
-            variants={stepItem}
-            transition={{ duration: 0.56, ease: "easeOut" }}
-          >
-            <h3>Free and inspectable</h3>
-            <p>Open source, no lock-in, and no CorosLink cloud backend.</p>
-          </motion.article>
-        </motion.div>
-      </motion.section>
     </>
   );
 }

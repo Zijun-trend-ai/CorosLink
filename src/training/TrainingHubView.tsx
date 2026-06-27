@@ -1,17 +1,28 @@
 import { useMemo, useState } from "react";
 import {
   Activity,
+  Database,
+  Eye,
+  EyeOff,
+  Globe2,
   Loader2,
   LogIn,
+  LogOut,
+  Monitor,
+  ShieldCheck,
+  User,
   RefreshCw
 } from "lucide-react";
 import { ActivityDetailPanel } from "./components/ActivityDetailPanel";
 import { FitnessScoresPanel } from "./components/FitnessScoresPanel";
+import { FitnessTrendPanel } from "./components/FitnessTrendPanel";
+import { PersonalRecordsPanel } from "./components/PersonalRecordsPanel";
 import { RacePredictorCards } from "./components/RacePredictorCards";
 import { RecoveryRing } from "./components/RecoveryRing";
 import { TrainingActivityTable } from "./components/TrainingActivityTable";
 import { TrainingSummaryTiles } from "./components/TrainingSummaryTiles";
 import { TrainingTrendCharts } from "./components/TrainingTrendChart";
+import { UpcomingWorkoutsPanel } from "./components/UpcomingWorkoutsPanel";
 import type { TrainingHubViewProps } from "./types";
 
 export function TrainingHubView({
@@ -19,6 +30,7 @@ export function TrainingHubView({
   email,
   password,
   activities,
+  upcomingWorkouts,
   snapshot,
   sportTypes,
   activityDetail,
@@ -34,6 +46,9 @@ export function TrainingHubView({
 }: TrainingHubViewProps) {
   const connected = Boolean(status?.authenticated);
   const [showConnectionDetails, setShowConnectionDetails] = useState(false);
+  const activityCountLabel = `${activities.length} recent ${
+    activities.length === 1 ? "activity" : "activities"
+  }`;
   const summary = useMemo(
     () =>
       snapshot?.summary ?? {
@@ -49,87 +64,132 @@ export function TrainingHubView({
 
   return (
     <div className="stack training-dashboard">
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Training Hub</p>
-            <h2>{connected ? "Connected" : "Connect COROS"}</h2>
-          </div>
-          <span className={connected ? "badge ready" : "badge"}>
-            {connected ? "Authenticated" : "Not connected"}
-          </span>
-        </div>
-
+      <section
+        className={`panel training-command-center ${
+          connected ? "is-connected is-compact" : "is-disconnected"
+        }`}
+      >
         {connected ? (
-          <div className="training-status-grid">
-            <div>
-              <span>User ID</span>
-              <strong>{status?.userId ?? "Unknown"}</strong>
-            </div>
-            <div>
-              <span>Region</span>
-              <strong>{status?.regionId ?? "Unknown"}</strong>
+          <div className="training-connection-shell">
+            <div className="training-connection-bar">
+              <div className="training-connection-primary">
+                <span
+                  className="training-status-dot is-connected"
+                  aria-hidden="true"
+                />
+                <span className="training-connection-label">
+                  COROS account connected
+                </span>
+                <span className="badge ready">
+                  <ShieldCheck size={12} aria-hidden="true" />
+                  Authenticated
+                </span>
+              </div>
+              <div className="training-connection-actions settings-actions">
+                <button
+                  className="training-details-button"
+                  type="button"
+                  onClick={() => setShowConnectionDetails((current) => !current)}
+                >
+                  {showConnectionDetails ? (
+                    <EyeOff size={14} aria-hidden="true" />
+                  ) : (
+                    <Eye size={14} aria-hidden="true" />
+                  )}
+                  {showConnectionDetails ? "Hide" : "Details"}
+                </button>
+                <button
+                  className="secondary-button training-connection-button"
+                  type="button"
+                  disabled={busy === "training-refresh"}
+                  onClick={onRefresh}
+                >
+                  {busy === "training-refresh" ? (
+                    <Loader2 className="spin" size={15} aria-hidden="true" />
+                  ) : (
+                    <RefreshCw size={15} aria-hidden="true" />
+                  )}
+                  Refresh
+                </button>
+                <button
+                  className="secondary-button danger-button training-connection-button"
+                  type="button"
+                  disabled={busy === "training-logout"}
+                  onClick={onLogout}
+                >
+                  <LogOut size={15} aria-hidden="true" />
+                  Disconnect
+                </button>
+              </div>
             </div>
             {showConnectionDetails ? (
-              <div className="training-status-host">
-                <span>API host</span>
-                <strong>{status?.baseUrl ?? "Unknown"}</strong>
+              <div className="training-connection-meta">
+                <span className="training-connection-meta-item">
+                  <User size={14} aria-hidden="true" />
+                  <span>User ID</span>
+                  <strong>{status?.userId ?? "Unknown"}</strong>
+                </span>
+                <span className="training-connection-meta-item">
+                  <Globe2 size={14} aria-hidden="true" />
+                  <span>Region</span>
+                  <strong>{status?.regionId ?? "Unknown"}</strong>
+                </span>
+                <span className="training-connection-meta-item">
+                  <Database size={14} aria-hidden="true" />
+                  <span>API host</span>
+                  <strong>{status?.baseUrl ?? "Unknown"}</strong>
+                </span>
               </div>
             ) : null}
-            <div className="settings-actions">
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => setShowConnectionDetails((current) => !current)}
-              >
-                {showConnectionDetails ? "Hide details" : "Details"}
-              </button>
-              <button
-                className="secondary-button"
-                type="button"
-                disabled={busy === "training-refresh"}
-                onClick={onRefresh}
-              >
-                {busy === "training-refresh" ? (
-                  <Loader2 className="spin" size={17} aria-hidden="true" />
-                ) : (
-                  <RefreshCw size={17} aria-hidden="true" />
-                )}
-                Refresh
-              </button>
-              <button
-                className="secondary-button"
-                type="button"
-                disabled={busy === "training-logout"}
-                onClick={onLogout}
-              >
-                Disconnect
-              </button>
-            </div>
           </div>
         ) : (
-          <form className="settings-grid training-login-grid" onSubmit={onLogin}>
-            <label className="field">
-              <span>Email</span>
-              <input
-                value={email}
-                onChange={(event) => onEmailChange(event.target.value)}
-                placeholder="COROS account email"
-                type="email"
-                disabled={busy === "training-login"}
-              />
-            </label>
-            <label className="field">
-              <span>Password</span>
-              <input
-                value={password}
-                onChange={(event) => onPasswordChange(event.target.value)}
-                placeholder="COROS password"
-                type="password"
-                disabled={busy === "training-login"}
-              />
-            </label>
-            <div className="settings-actions">
+          <>
+            <div className="training-command-copy">
+              <div className="training-command-kicker">
+                <span className="training-status-dot" aria-hidden="true" />
+                <p className="eyebrow">Training Hub</p>
+              </div>
+              <h2>Connect COROS Training Hub</h2>
+              <p>
+                Review recovery, race predictions, activity detail, and fitness
+                trends on a larger, easier-to-scan desktop surface.
+              </p>
+            </div>
+            <form className="training-login-panel" onSubmit={onLogin}>
+            <div className="training-login-panel-header">
+              <div className="training-login-icon">
+                <Monitor size={20} aria-hidden="true" />
+              </div>
+              <div>
+                <span>Desktop analytics</span>
+                <strong>Sign in to load your latest COROS fitness data.</strong>
+              </div>
+            </div>
+
+            <div className="training-login-fields">
+              <label className="field">
+                <span>Email</span>
+                <input
+                  value={email}
+                  onChange={(event) => onEmailChange(event.target.value)}
+                  placeholder="COROS account email"
+                  type="email"
+                  disabled={busy === "training-login"}
+                />
+              </label>
+              <label className="field">
+                <span>Password</span>
+                <input
+                  value={password}
+                  onChange={(event) => onPasswordChange(event.target.value)}
+                  placeholder="COROS password"
+                  type="password"
+                  disabled={busy === "training-login"}
+                />
+              </label>
+            </div>
+
+            <div className="settings-actions training-login-actions">
               <button
                 className="primary-button"
                 type="submit"
@@ -143,29 +203,50 @@ export function TrainingHubView({
                 Log in
               </button>
             </div>
-          </form>
+            </form>
+          </>
         )}
       </section>
 
       {connected ? (
         <>
-          <TrainingSummaryTiles summary={summary} />
+          <section className="training-intelligence">
+            <div className="training-intelligence-header">
+              <p className="eyebrow">Training Intelligence</p>
+              <span
+                className={`training-sync-pill${
+                  busy === "training-refresh" ? " is-syncing" : ""
+                }`}
+              >
+                <span className="training-sync-dot" aria-hidden="true" />
+                {busy === "training-refresh" ? "Syncing data" : "Live"}
+              </span>
+            </div>
+            <div className="training-intelligence-grid">
+              <RecoveryRing summary={summary} />
+              <div className="training-intelligence-main">
+                <FitnessTrendPanel snapshot={snapshot} />
+                <TrainingSummaryTiles summary={summary} layout="stack" />
+              </div>
+            </div>
+          </section>
 
-          <div className="training-dashboard-grid">
-            <RecoveryRing summary={summary} />
-            <TrainingTrendCharts points={snapshot?.trendPoints ?? []} />
-          </div>
+          <TrainingTrendCharts points={snapshot?.trendPoints ?? []} />
 
           <div className="training-secondary-grid">
             <FitnessScoresPanel racePredictor={snapshot?.racePredictor ?? null} />
             <RacePredictorCards racePredictor={snapshot?.racePredictor ?? null} />
           </div>
 
-          <section className="panel">
+          <UpcomingWorkoutsPanel workouts={upcomingWorkouts} />
+
+          <PersonalRecordsPanel dashboard={snapshot?.dashboard ?? null} />
+
+          <section className="panel training-activities-panel">
             <div className="section-heading">
               <div>
                 <p className="eyebrow">Recent Activities</p>
-                <h2>{activities.length} activity(s)</h2>
+                <h2>{activityCountLabel}</h2>
               </div>
               <Activity size={22} aria-hidden="true" />
             </div>
@@ -180,13 +261,7 @@ export function TrainingHubView({
 
           <ActivityDetailPanel detail={activityDetail} fileUrl={fileUrl} />
         </>
-      ) : (
-        <section className="panel">
-          <div className="training-empty-state">
-            <p>Log in to load Training Hub data.</p>
-          </div>
-        </section>
-      )}
+      ) : null}
     </div>
   );
 }

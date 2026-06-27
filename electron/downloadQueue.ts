@@ -1,10 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { markYouTubeDownloaded } from "./database";
-import { downloadAudioWithProgress } from "./downloadService";
-import type { DownloadJob } from "./types";
+import { computeOverallProgress } from "./downloadProgress";
+import {
+  cancelDownloadProcess,
+  downloadAudioWithProgress,
+  DownloadCancelledError
+} from "./downloadService";
+import type { DownloadJob, DownloadProgressUpdate } from "./types";
 import {
   classifyYouTubeUrl,
-  normalizeYouTubeUrl,
+  normalizeYouTubeDownloadUrl,
   type YouTubeDownloadItem
 } from "./youtubeService";
 
@@ -58,7 +63,7 @@ export function enqueueDownloads(items: YouTubeDownloadItem[]): DownloadJob[] {
 
     let normalizedUrl: string;
     try {
-      normalizedUrl = normalizeYouTubeUrl(rawUrl);
+      normalizedUrl = normalizeYouTubeDownloadUrl(rawUrl);
     } catch {
       continue;
     }
@@ -68,6 +73,7 @@ export function enqueueDownloads(items: YouTubeDownloadItem[]): DownloadJob[] {
     }
     activeUrls.add(normalizedUrl);
 
+    const entryType = classifyYouTubeUrl(normalizedUrl);
     const job: DownloadJob = {
       id: randomUUID(),
       url: normalizedUrl,
@@ -75,6 +81,7 @@ export function enqueueDownloads(items: YouTubeDownloadItem[]): DownloadJob[] {
       status: "queued",
       progress: 0,
       tracks: [],
+      entryType: entryType === "playlist" ? "playlist" : "video",
       createdAt: now,
       updatedAt: now
     };
@@ -93,7 +100,12 @@ export function enqueueDownloads(items: YouTubeDownloadItem[]): DownloadJob[] {
 
 export function clearJob(id: string): DownloadJob[] {
   const job = jobs.get(id);
-  if (job && (job.status === "completed" || job.status === "failed")) {
+  if (
+    job &&
+    (job.status === "completed" ||
+      job.status === "failed" ||
+      job.status === "cancelled")
+  ) {
     jobs.delete(id);
     emit();
   }
@@ -102,11 +114,39 @@ export function clearJob(id: string): DownloadJob[] {
 
 export function clearCompletedJobs(): DownloadJob[] {
   for (const [id, job] of jobs) {
-    if (job.status === "completed" || job.status === "failed") {
+    if (
+      job.status === "completed" ||
+      job.status === "failed" ||
+      job.status === "cancelled"
+    ) {
       jobs.delete(id);
     }
   }
   emit();
+  return snapshot();
+}
+
+export function cancelJob(id: string): DownloadJob[] {
+  const job = jobs.get(id);
+  if (!job) {
+    return snapshot();
+  }
+
+  if (job.status === "queued") {
+    jobs.delete(id);
+    emit();
+    pump();
+    return snapshot();
+  }
+
+  if (job.status === "downloading") {
+    job.status = "cancelled";
+    job.activity = "Cancelling…";
+    touch(job);
+    emit();
+    cancelDownloadProcess(id);
+  }
+
   return snapshot();
 }
 
@@ -126,6 +166,10 @@ async function runJob(job: DownloadJob): Promise<void> {
   activeCount += 1;
   job.status = "downloading";
   job.progress = 0;
+  job.phase = "starting";
+  job.activity = "Starting yt-dlp…";
+  job.trackProgress = 0;
+  job.completedTrackCount = 0;
   touch(job);
   emit();
 
@@ -135,15 +179,31 @@ async function runJob(job: DownloadJob): Promise<void> {
       throw new Error("Only YouTube videos or playlists can be downloaded.");
     }
 
-    const result = await downloadAudioWithProgress(job.url, (percent) => {
-      job.progress = Math.max(job.progress, Math.min(100, percent));
-      touch(job);
-      emit();
-    });
+    job.entryType = entryType === "playlist" ? "playlist" : "video";
+
+    const result = await downloadAudioWithProgress(
+      job.url,
+      (update) => {
+        mergeProgressUpdate(job, update);
+        touch(job);
+        emit();
+      },
+      {
+        jobId: job.id,
+        isCancelled: () => jobs.get(job.id)?.status === "cancelled"
+      }
+    );
+
+    if (jobs.get(job.id)?.status === "cancelled") {
+      throw new DownloadCancelledError();
+    }
 
     job.tracks = result.tracks;
     job.progress = 100;
     job.status = "completed";
+    job.phase = "completed";
+    job.completedTrackCount = result.tracks.length;
+    job.warning = result.warnings?.[0];
 
     // Prefer the real title from the downloaded file (yt-dlp names it
     // "<title> [<id>]"), since the in-page title can be missing or generic.
@@ -159,8 +219,15 @@ async function runJob(job: DownloadJob): Promise<void> {
       entryType
     });
   } catch (error) {
-    job.status = "failed";
-    job.error = error instanceof Error ? error.message : String(error);
+    if (error instanceof DownloadCancelledError) {
+      job.status = "cancelled";
+      job.activity = "Cancelled";
+      job.error = undefined;
+    } else {
+      job.status = "failed";
+      job.phase = "failed";
+      job.error = error instanceof Error ? error.message : String(error);
+    }
     touch(job);
   } finally {
     activeCount -= 1;
@@ -179,4 +246,43 @@ function cleanTitle(title?: string): string {
 function cleanTrackTitle(title?: string): string {
   // Strip the trailing " [videoId]" that yt-dlp appends to the file name.
   return cleanTitle(title).replace(/\s*\[[A-Za-z0-9_-]{6,}\]\s*$/, "").trim();
+}
+
+function mergeProgressUpdate(job: DownloadJob, update: DownloadProgressUpdate): void {
+  if (update.trackIndex !== undefined) {
+    job.trackIndex = update.trackIndex;
+  }
+
+  if (update.trackTotal !== undefined) {
+    job.trackTotal = update.trackTotal;
+  }
+
+  if (update.currentTrackTitle !== undefined) {
+    job.currentTrackTitle = update.currentTrackTitle;
+  }
+
+  if (update.trackProgress !== undefined) {
+    job.trackProgress = update.trackProgress;
+  }
+
+  if (update.phase !== undefined) {
+    job.phase = update.phase;
+  }
+
+  if (update.activity !== undefined) {
+    job.activity = update.activity;
+  }
+
+  if (update.completedTrackIncrement) {
+    job.completedTrackCount =
+      (job.completedTrackCount ?? 0) + update.completedTrackIncrement;
+  }
+
+  job.progress = computeOverallProgress({
+    entryType: job.entryType,
+    trackIndex: job.trackIndex,
+    trackTotal: job.trackTotal,
+    trackProgress: job.trackProgress,
+    previousProgress: job.progress
+  });
 }

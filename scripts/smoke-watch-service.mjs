@@ -27,6 +27,8 @@ async function runPaceProSmoke() {
       path.join(musicPath, "Existing Track.mp3"),
       "mp3"
     );
+    await fs.promises.writeFile(path.join(musicPath, "._Ghost.mp3"), "junk");
+    await fs.promises.writeFile(path.join(musicPath, ".DS_Store"), "junk");
     await fs.promises.writeFile(path.join(musicPath, "notes.txt"), "ignore");
     await fs.promises.writeFile(sourceTrack, "new mp3");
 
@@ -97,7 +99,152 @@ async function runPace4Smoke() {
   }
 }
 
+async function runInstallerVolumeIgnoredSmoke() {
+  const tempRoot = await fs.promises.mkdtemp(
+    path.join(os.tmpdir(), "coros-watch-smoke-installer-")
+  );
+  const watchRoot = path.join(tempRoot, "COROS Desktop-0.1.0-arm64");
+
+  try {
+    await fs.promises.mkdir(watchRoot, { recursive: true });
+
+    process.env.COROS_WATCH_PATH = watchRoot;
+
+    const { getWatchStatus } = await loadWatchService();
+    const status = await getWatchStatus();
+
+    assert.equal(status.connected, false);
+    assert.equal(status.tracks.length, 0);
+  } finally {
+    delete process.env.COROS_WATCH_PATH;
+    await fs.promises.rm(tempRoot, { recursive: true, force: true });
+  }
+}
+
+async function runPace3Smoke() {
+  const tempRoot = await fs.promises.mkdtemp(
+    path.join(os.tmpdir(), "coros-watch-smoke-3-")
+  );
+  const watchRoot = path.join(tempRoot, "COROS PACE 3");
+  const musicPath = path.join(watchRoot, "Music");
+
+  try {
+    await fs.promises.mkdir(musicPath, { recursive: true });
+    await fs.promises.writeFile(path.join(musicPath, "Cooldown.mp3"), "mp3");
+
+    process.env.COROS_WATCH_PATH = watchRoot;
+
+    const { getWatchStatus } = await loadWatchService();
+    const status = await getWatchStatus();
+
+    assert.equal(status.connected, true);
+    assert.equal(status.name, "COROS PACE 3");
+    assert.equal(status.model, "pace-3");
+    assert.equal(status.rootPath, watchRoot);
+    assert.equal(status.musicPath, musicPath);
+    assert.equal(status.tracks.length, 1);
+    assert.equal(status.tracks[0].name, "Cooldown.mp3");
+  } finally {
+    delete process.env.COROS_WATCH_PATH;
+    await fs.promises.rm(tempRoot, { recursive: true, force: true });
+  }
+}
+
+async function runPace3NameVariantSmoke(volumeName, label) {
+  const tempRoot = await fs.promises.mkdtemp(
+    path.join(os.tmpdir(), `coros-watch-smoke-3-${label}-`)
+  );
+  const watchRoot = path.join(tempRoot, volumeName);
+  const musicPath = path.join(watchRoot, "Music");
+
+  try {
+    await fs.promises.mkdir(musicPath, { recursive: true });
+    await fs.promises.writeFile(path.join(musicPath, "Track.mp3"), "mp3");
+
+    process.env.COROS_WATCH_PATH = watchRoot;
+
+    const { getWatchStatus } = await loadWatchService();
+    const status = await getWatchStatus();
+
+    assert.equal(status.connected, true, `${label}: connected`);
+    assert.equal(status.name, volumeName, `${label}: name`);
+    assert.equal(status.model, "pace-3", `${label}: model`);
+  } finally {
+    delete process.env.COROS_WATCH_PATH;
+    await fs.promises.rm(tempRoot, { recursive: true, force: true });
+  }
+}
+
+async function runAmbiguousCorosPaceSmoke() {
+  const tempRoot = await fs.promises.mkdtemp(
+    path.join(os.tmpdir(), "coros-watch-smoke-ambiguous-")
+  );
+  const watchRoot = path.join(tempRoot, "COROS PACE");
+  const musicPath = path.join(watchRoot, "Music");
+
+  try {
+    await fs.promises.mkdir(musicPath, { recursive: true });
+    await fs.promises.writeFile(path.join(musicPath, "Track.mp3"), "mp3");
+
+    process.env.COROS_WATCH_PATH = watchRoot;
+
+    const { getWatchStatus } = await loadWatchService();
+    const status = await getWatchStatus();
+
+    assert.equal(status.connected, true);
+    assert.equal(status.name, "COROS PACE");
+
+    const modelsUrl = pathToFileURL(
+      path.join(repoRoot, "dist-electron", "watchModels.js")
+    );
+    const { resolveWatchModel } = await import(
+      `${modelsUrl.href}?cacheBust=${Date.now()}`
+    );
+    const fourGb = 4 * 1024 * 1024 * 1024;
+    assert.equal(resolveWatchModel("COROS PACE", fourGb), undefined);
+  } finally {
+    delete process.env.COROS_WATCH_PATH;
+    await fs.promises.rm(tempRoot, { recursive: true, force: true });
+  }
+}
+
+async function runNomadSmoke() {
+  const tempRoot = await fs.promises.mkdtemp(
+    path.join(os.tmpdir(), "coros-watch-smoke-nomad-")
+  );
+  const watchRoot = path.join(tempRoot, "COROS NOMAD");
+  const musicPath = path.join(watchRoot, "Music");
+
+  try {
+    await fs.promises.mkdir(musicPath, { recursive: true });
+    await fs.promises.writeFile(path.join(musicPath, "Trail Mix.mp3"), "mp3");
+
+    process.env.COROS_WATCH_PATH = watchRoot;
+
+    const { getWatchStatus } = await loadWatchService();
+    const status = await getWatchStatus();
+
+    assert.equal(status.connected, true);
+    assert.equal(status.name, "COROS NOMAD");
+    assert.equal(status.model, "nomad");
+    assert.equal(status.rootPath, watchRoot);
+    assert.equal(status.musicPath, musicPath);
+    assert.equal(status.tracks.length, 1);
+    assert.equal(status.tracks[0].name, "Trail Mix.mp3");
+  } finally {
+    delete process.env.COROS_WATCH_PATH;
+    await fs.promises.rm(tempRoot, { recursive: true, force: true });
+  }
+}
+
 await runPaceProSmoke();
 await runPace4Smoke();
+await runPace3Smoke();
+await runNomadSmoke();
+await runPace3NameVariantSmoke("PACE 3", "pace-3-space");
+await runPace3NameVariantSmoke("PACE-3", "pace-3-hyphen");
+await runPace3NameVariantSmoke("PACE3", "pace-3-compact");
+await runAmbiguousCorosPaceSmoke();
+await runInstallerVolumeIgnoredSmoke();
 
 console.log("Watch service smoke checks passed.");

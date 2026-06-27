@@ -1,9 +1,10 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron";
 import fs from "node:fs";
 import path from "node:path";
-import { deleteDownload, getDownloadById, initializeDatabase, listDownloads, markDownloadTransferred } from "./database";
+import { deleteDownload, getDownloadById, initializeDatabase, listDownloads, markDownloadTransferred, clearDownloadTransferredByFileName } from "./database";
 import { downloadAudio, getBinaryStatus } from "./downloadService";
 import {
+  cancelJob,
   clearCompletedJobs,
   clearJob,
   enqueueDownloads,
@@ -26,9 +27,11 @@ import {
   getRacePredictor,
   getSportTypeMap,
   getTrainingAnalytics,
+  getTrainingDashboard,
   getTrainingHubActivityDetail,
   getTrainingHubActivityFileUrl,
   getTrainingHubStatus,
+  getUpcomingWorkouts,
   listTrainingHubActivities,
   loginTrainingHub,
   logoutTrainingHub
@@ -142,6 +145,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("watch:deleteTrack", async (_event, relativePath: string) => {
     await deleteWatchTrack(relativePath);
+    clearDownloadTransferredByFileName(path.basename(relativePath));
     return getWatchStatus();
   });
 
@@ -203,6 +207,10 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("youtube:clearJob", (_event, id: string): DownloadJob[] =>
     clearJob(id)
+  );
+
+  ipcMain.handle("youtube:cancelJob", (_event, id: string): DownloadJob[] =>
+    cancelJob(id)
   );
 
   ipcMain.handle("youtube:clearCompletedJobs", (): DownloadJob[] =>
@@ -279,9 +287,15 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("trainingHub:getRacePredictor", () => getRacePredictor());
 
+  ipcMain.handle("trainingHub:getDashboard", () => getTrainingDashboard());
+
   ipcMain.handle("trainingHub:getDailyMetrics", (_event, dateList: string[]) =>
     getDailyMetrics(dateList)
   );
 
   ipcMain.handle("trainingHub:getSportTypeMap", () => getSportTypeMap());
+
+  ipcMain.handle("trainingHub:getUpcomingWorkouts", (_event, days?: number) =>
+    getUpcomingWorkouts(days)
+  );
 }

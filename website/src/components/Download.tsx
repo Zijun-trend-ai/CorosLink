@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { track } from "@vercel/analytics";
 import { motion } from "motion/react";
 import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
 
@@ -10,6 +11,12 @@ interface ReleaseAssets {
   winUrl: string | null;
   version: string | null;
 }
+
+const installNotes = [
+  "No CorosLink account required",
+  "Stores music and tokens locally",
+  "Unsigned builds while the project is young",
+];
 
 export function Download() {
   const reduced = usePrefersReducedMotion();
@@ -62,6 +69,11 @@ export function Download() {
     : assets.version
       ? `Download ${assets.version}`
       : "View releases";
+  const releaseStatus = loading
+    ? "Checking GitHub Releases"
+    : assets.version
+      ? `Latest release ${assets.version}`
+      : "Release assets unavailable";
   const reveal = {
     initial: { opacity: 0, y: reduced ? 0 : 34 },
     whileInView: { opacity: 1, y: 0 },
@@ -72,46 +84,100 @@ export function Download() {
   return (
     <section id="download" className="download-section">
       <motion.div className="container download-panel" {...reveal}>
-        <motion.p className="eyebrow" {...reveal}>
-          Get CorosLink
-        </motion.p>
-        <motion.h2 {...reveal}>Download the desktop companion.</motion.h2>
-        <motion.p {...reveal}>
-          Free for macOS and Windows. Builds are distributed through GitHub
-          Releases and remain unsigned while the project is young.
-        </motion.p>
+        <div className="download-hero-grid">
+          <div className="download-copy">
+            <motion.p className="eyebrow" {...reveal}>
+              Get CorosLink
+            </motion.p>
+            <motion.h2 {...reveal}>Download the desktop companion.</motion.h2>
+            <motion.p {...reveal}>
+              Free for macOS and Windows. Pull your Pace Pro workflows into one
+              desktop app for music sync, direct USB transfer, and training review.
+            </motion.p>
+
+            <motion.div className="download-release-strip" {...reveal}>
+              <span className="download-live-dot" aria-hidden="true" />
+              <strong>{releaseStatus}</strong>
+              <a href={RELEASES_URL} target="_blank" rel="noopener noreferrer">
+                GitHub Releases
+              </a>
+            </motion.div>
+
+            <motion.ul className="download-note-list" {...reveal}>
+              {installNotes.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </motion.ul>
+          </div>
+
+          <motion.div
+            className="download-preview"
+            initial={{ opacity: 0, y: reduced ? 0 : 28 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "0px 0px -120px 0px" }}
+            transition={{ duration: 0.62, ease: "easeOut" }}
+          >
+            <div className="download-window-bar" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="download-preview-body">
+              <div>
+                <span>Connected device</span>
+                <strong>Pace Pro ready</strong>
+              </div>
+              <div className="download-preview-meter" aria-hidden="true">
+                <motion.span
+                  animate={reduced ? { width: "88%" } : { width: ["42%", "88%", "88%", "42%"] }}
+                  transition={
+                    reduced
+                      ? { duration: 0 }
+                      : { duration: 5.6, repeat: Infinity, ease: "easeInOut" }
+                  }
+                />
+              </div>
+              <div className="download-preview-stats">
+                <span>
+                  <strong>42</strong>
+                  tracks
+                </span>
+                <span>
+                  <strong>3</strong>
+                  playlists
+                </span>
+                <span>
+                  <strong>FIT</strong>
+                  export
+                </span>
+              </div>
+            </div>
+          </motion.div>
+        </div>
 
         <div className="download-actions">
-          <motion.a
+          <DownloadOption
+            delay={0}
             href={macHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="download-option"
-            initial={{ opacity: 0, y: reduced ? 0 : 24 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "0px 0px -120px 0px" }}
-            transition={{ duration: 0.56, ease: "easeOut" }}
-            whileHover={reduced ? undefined : { y: -5 }}
-            whileTap={reduced ? undefined : { scale: 0.99 }}
-          >
-            <span>macOS</span>
-            <strong>{assets.macUrl || loading ? releaseLabel : "View releases"}</strong>
-          </motion.a>
-          <motion.a
+            label="macOS"
+            meta="Apple Silicon and Intel"
+            cta={assets.macUrl || loading ? releaseLabel : "View releases"}
+            icon="mac"
+            version={assets.version}
+            directAsset={Boolean(assets.macUrl)}
+            reduced={reduced}
+          />
+          <DownloadOption
+            delay={0.1}
             href={winHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="download-option"
-            initial={{ opacity: 0, y: reduced ? 0 : 24 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "0px 0px -120px 0px" }}
-            transition={{ delay: reduced ? 0 : 0.1, duration: 0.56, ease: "easeOut" }}
-            whileHover={reduced ? undefined : { y: -5 }}
-            whileTap={reduced ? undefined : { scale: 0.99 }}
-          >
-            <span>Windows</span>
-            <strong>{assets.winUrl || loading ? releaseLabel : "View releases"}</strong>
-          </motion.a>
+            label="Windows"
+            meta="Windows desktop installer"
+            cta={assets.winUrl || loading ? releaseLabel : "View releases"}
+            icon="windows"
+            version={assets.version}
+            directAsset={Boolean(assets.winUrl)}
+            reduced={reduced}
+          />
         </div>
 
         {!loading && !assets.macUrl && !assets.winUrl && (
@@ -127,5 +193,97 @@ export function Download() {
         )}
       </motion.div>
     </section>
+  );
+}
+
+function DownloadOption({
+  delay,
+  href,
+  label,
+  meta,
+  cta,
+  icon,
+  version,
+  directAsset,
+  reduced,
+}: {
+  delay: number;
+  href: string;
+  label: string;
+  meta: string;
+  cta: string;
+  icon: "mac" | "windows";
+  version: string | null;
+  directAsset: boolean;
+  reduced: boolean;
+}) {
+  function handleDownloadClick() {
+    track("Download Button Clicked", {
+      platform: label,
+      release: version ?? "unknown",
+      target: directAsset ? "release-asset" : "github-releases",
+    });
+  }
+
+  return (
+    <motion.a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="download-option"
+      onClick={handleDownloadClick}
+      initial={{ opacity: 0, y: reduced ? 0 : 24 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "0px 0px -120px 0px" }}
+      transition={{ delay: reduced ? 0 : delay, duration: 0.56, ease: "easeOut" }}
+      whileHover={reduced ? undefined : { y: -5 }}
+      whileTap={reduced ? undefined : { scale: 0.99 }}
+    >
+      <span className={`download-platform-icon download-platform-icon--${icon}`} aria-hidden="true">
+        {icon === "mac" ? <AppleIcon /> : <WindowsIcon />}
+      </span>
+      <span className="download-option-copy">
+        <span>{label}</span>
+        <strong>{cta}</strong>
+        <em>{meta}</em>
+      </span>
+      <span className="download-arrow" aria-hidden="true">
+        <DownloadArrowIcon />
+      </span>
+    </motion.a>
+  );
+}
+
+function AppleIcon() {
+  return (
+    <svg viewBox="0 0 384 512" focusable="false">
+      <path
+        fill="currentColor"
+        d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5c0 26.2 4.8 53.3 14.4 81.2 12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zM262.1 104.5c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"
+      />
+    </svg>
+  );
+}
+
+function WindowsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" focusable="false">
+      <path fill="currentColor" d="M3 4.8 10.7 3.7v7.4H3V4.8Zm8.7-1.2L21 2.2v8.9h-9.3V3.6ZM3 12.1h7.7v7.5L3 18.5v-6.4Zm8.7 0H21V21l-9.3-1.3v-7.6Z" />
+    </svg>
+  );
+}
+
+function DownloadArrowIcon() {
+  return (
+    <svg viewBox="0 0 24 24" focusable="false">
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2.2"
+        d="M12 4v12m0 0 5-5m-5 5-5-5m-2 8h14"
+      />
+    </svg>
   );
 }

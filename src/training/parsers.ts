@@ -2,7 +2,7 @@ import type {
   TrainingHubAnalytics,
   TrainingHubDailyMetric,
   TrainingHubDailyMetrics,
-  TrainingHubRacePredictor
+  TrainingHubDashboard
 } from "../../electron/types";
 import { formatHappenDayLabel } from "./formatters";
 import type { TrainingHubSnapshot, TrainingSummaryMetrics, TrainingTrendPoint } from "./types";
@@ -48,8 +48,9 @@ function buildTrendPoints(dayList: TrainingHubDailyMetric[]): TrainingTrendPoint
 
 function buildSummary(
   dayList: TrainingHubDailyMetric[],
-  racePredictor: TrainingHubRacePredictor | null
+  dashboard: TrainingHubDashboard | null
 ): TrainingSummaryMetrics {
+  const racePredictor = dashboard?.racePredictor ?? null;
   const recent = dayList.slice(-7);
   const latest = recent[recent.length - 1];
   const priorRhrValues = recent
@@ -67,31 +68,33 @@ function buildSummary(
     (total, day) => total + (day.trainingLoad ?? 0),
     0
   );
+  const latestRhr = latest?.rhr ?? dashboard?.rhr;
 
   return {
     staminaLevel: racePredictor?.staminaLevel ?? latest?.staminaLevel,
-    recoveryPct: racePredictor?.recoveryPct,
+    recoveryPct: racePredictor?.recoveryPct ?? dashboard?.recoveryPct,
     todayLoad: latest?.trainingLoad,
     weekLoadTotal: weekLoadTotal > 0 ? weekLoadTotal : undefined,
-    latestRhr: latest?.rhr,
+    latestRhr,
     rhrDelta:
-      latest?.rhr !== undefined && priorRhrAverage !== undefined
-        ? latest.rhr - priorRhrAverage
+      latestRhr !== undefined && priorRhrAverage !== undefined
+        ? latestRhr - priorRhrAverage
         : undefined
   };
 }
 
 export function buildTrainingHubSnapshot(
   analytics: TrainingHubAnalytics | null,
-  racePredictor: TrainingHubRacePredictor | null,
+  dashboard: TrainingHubDashboard | null,
   dailyMetrics: TrainingHubDailyMetrics | null
 ): TrainingHubSnapshot {
   const dayList = mergeDayLists(dailyMetrics, analytics);
 
   return {
-    summary: buildSummary(dayList, racePredictor),
+    summary: buildSummary(dayList, dashboard),
     trendPoints: buildTrendPoints(dayList),
-    racePredictor,
+    racePredictor: dashboard?.racePredictor ?? null,
+    dashboard,
     analytics,
     dailyMetrics
   };
