@@ -21,12 +21,17 @@ import type {
   TrainingHubStatus,
   TrainingHubUpcomingWorkout,
   TransferResult,
+  WatchConnectionSmokeOptionId,
   WatchStatus,
   YouTubeHistoryEntry
 } from "../electron/types";
 
 export interface CorosLinkApi {
   getWatchStatus: () => Promise<WatchStatus>;
+  getWatchConnectionSmokeOption: () => Promise<WatchConnectionSmokeOptionId>;
+  setWatchConnectionSmokeOption: (
+    optionId: WatchConnectionSmokeOptionId
+  ) => Promise<WatchStatus>;
   deleteWatchTrack: (relativePath: string) => Promise<WatchStatus>;
   transferLocalTrack: (id: string) => Promise<TransferResult>;
   listDownloads: () => Promise<LocalTrack[]>;

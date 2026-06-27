@@ -1,12 +1,162 @@
-import type { ReactNode } from "react";
-import { Loader2, Music, Trash2, Upload } from "lucide-react";
+import { useDeferredValue, useMemo, useState, type ReactNode } from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  CheckCircle2,
+  Loader2,
+  Music,
+  Search,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 import type { LocalTrack, WatchStatus, WatchTrack } from "../../electron/types";
 import { getWatchPresentation } from "../watchModels";
 import {
+  createWatchTrackNameIndex,
   formatBytes,
-  isLocalTrackOnWatch,
+  formatDate,
+  isLocalTrackOnWatchByIndex,
   sumBytes,
 } from "./libraryUtils";
+
+type SortDirection = "asc" | "desc";
+type LocalLibrarySortKey = "title" | "size" | "created" | "status";
+type WatchLibrarySortKey = "name" | "size" | "modified";
+type LocalTrackFilter = "all" | "pending" | "synced";
+type WatchTrackFilter = "all" | "selected";
+
+interface SortState<Key extends string> {
+  key: Key;
+  direction: SortDirection;
+}
+
+const localSortDefaults: Record<LocalLibrarySortKey, SortDirection> = {
+  title: "asc",
+  size: "desc",
+  created: "desc",
+  status: "asc",
+};
+
+const watchSortDefaults: Record<WatchLibrarySortKey, SortDirection> = {
+  name: "asc",
+  size: "desc",
+  modified: "desc",
+};
+
+function nextSortState<Key extends string>(
+  current: SortState<Key>,
+  key: Key,
+  defaults: Record<Key, SortDirection>,
+): SortState<Key> {
+  if (current.key === key) {
+    return {
+      key,
+      direction: current.direction === "asc" ? "desc" : "asc",
+    };
+  }
+
+  return { key, direction: defaults[key] };
+}
+
+function compareText(a: string, b: string): number {
+  return a.localeCompare(b, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+function compareDates(a: string, b: string): number {
+  return new Date(a).getTime() - new Date(b).getTime();
+}
+
+function applySortDirection(value: number, direction: SortDirection): number {
+  return direction === "asc" ? value : -value;
+}
+
+function getLocalFileName(track: LocalTrack): string {
+  return track.filePath.split(/[/\\]/).pop() ?? track.title;
+}
+
+function normalizeSearchValue(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase();
+}
+
+function getSearchTerms(value: string): string[] {
+  return normalizeSearchValue(value).trim().split(/\s+/).filter(Boolean);
+}
+
+function buildSearchText(values: string[]): string {
+  return values.map(normalizeSearchValue).join(" ");
+}
+
+function searchTextMatchesTerms(searchText: string, terms: string[]): boolean {
+  return terms.every((term) => searchText.includes(term));
+}
+
+interface LocalTrackSearchItem {
+  track: LocalTrack;
+  fileName: string;
+  onWatch: boolean;
+  searchText: string;
+}
+
+interface WatchTrackSearchItem {
+  track: WatchTrack;
+  searchText: string;
+}
+
+function sortLocalTrackItems(
+  items: LocalTrackSearchItem[],
+  sort: SortState<LocalLibrarySortKey>,
+): LocalTrackSearchItem[] {
+  return [...items].sort((a, b) => {
+    let result = 0;
+
+    if (sort.key === "title") {
+      result = compareText(a.track.title, b.track.title);
+    } else if (sort.key === "size") {
+      result = a.track.sizeBytes - b.track.sizeBytes;
+    } else if (sort.key === "created") {
+      result = compareDates(a.track.createdAt, b.track.createdAt);
+    } else {
+      result = Number(a.onWatch) - Number(b.onWatch);
+    }
+
+    if (result !== 0) {
+      return applySortDirection(result, sort.direction);
+    }
+
+    return compareText(a.track.title, b.track.title);
+  });
+}
+
+function sortWatchTrackItems(
+  items: WatchTrackSearchItem[],
+  sort: SortState<WatchLibrarySortKey>,
+): WatchTrackSearchItem[] {
+  return [...items].sort((a, b) => {
+    let result = 0;
+
+    if (sort.key === "name") {
+      result = compareText(a.track.name, b.track.name);
+    } else if (sort.key === "size") {
+      result = a.track.sizeBytes - b.track.sizeBytes;
+    } else {
+      result = compareDates(a.track.modifiedAt, b.track.modifiedAt);
+    }
+
+    if (result !== 0) {
+      return applySortDirection(result, sort.direction);
+    }
+
+    return compareText(a.track.name, b.track.name);
+  });
+}
 
 interface LibrarySyncLayoutProps {
   localPanel: ReactNode;
@@ -75,13 +225,13 @@ interface LocalLibraryPanelProps {
   watchConnected: boolean;
   busy: string | null;
   selectedIds: Set<string>;
-  allSelected: boolean;
-  pendingTransferCount: number;
   canTransferAll: boolean;
   onToggleSelect: (id: string) => void;
-  onToggleSelectAll: () => void;
+  onSelectTracks: (ids: string[], selected: boolean) => void;
+  onClearSelection: () => void;
   onTransfer: (id: string) => void;
   onTransferAll: () => void;
+  onTransferDownloads: (tracks: LocalTrack[]) => void;
   onDeleteDownload: (track: LocalTrack) => void;
   onDeleteDownloads: (tracks: LocalTrack[]) => void;
 }
@@ -92,19 +242,114 @@ export function LocalLibraryPanel({
   watchConnected,
   busy,
   selectedIds,
-  allSelected,
-  pendingTransferCount,
   canTransferAll,
   onToggleSelect,
-  onToggleSelectAll,
+  onSelectTracks,
+  onClearSelection,
   onTransfer,
   onTransferAll,
+  onTransferDownloads,
   onDeleteDownload,
   onDeleteDownloads,
 }: LocalLibraryPanelProps) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [trackFilter, setTrackFilter] = useState<LocalTrackFilter>("all");
+  const [sort, setSort] = useState<SortState<LocalLibrarySortKey>>({
+    key: "created",
+    direction: "desc",
+  });
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const searchTerms = useMemo(
+    () => getSearchTerms(deferredSearchQuery),
+    [deferredSearchQuery],
+  );
+  const watchIndex = useMemo(
+    () => createWatchTrackNameIndex(watchTracks),
+    [watchTracks],
+  );
+  const localTrackItems = useMemo<LocalTrackSearchItem[]>(
+    () =>
+      downloads.map((track) => {
+        const fileName = getLocalFileName(track);
+
+        return {
+          track,
+          fileName,
+          onWatch: isLocalTrackOnWatchByIndex(
+            track,
+            watchIndex,
+            watchConnected,
+          ),
+          searchText: buildSearchText([track.title, fileName, track.url]),
+        };
+      }),
+    [downloads, watchConnected, watchIndex],
+  );
   const someSelected = selectedIds.size > 0;
-  const selectedTracks = downloads.filter((track) => selectedIds.has(track.id));
-  const totalSize = sumBytes(downloads);
+  const selectedItems = useMemo(
+    () => localTrackItems.filter(({ track }) => selectedIds.has(track.id)),
+    [localTrackItems, selectedIds],
+  );
+  const selectedTracks = useMemo(
+    () => selectedItems.map(({ track }) => track),
+    [selectedItems],
+  );
+  const pendingSelectedTracks = useMemo(
+    () =>
+      selectedItems
+        .filter(({ onWatch }) => !onWatch)
+        .map(({ track }) => track),
+    [selectedItems],
+  );
+  const totalSize = useMemo(() => sumBytes(downloads), [downloads]);
+  const selectedSize = useMemo(() => sumBytes(selectedTracks), [selectedTracks]);
+  const pendingLocalCount = useMemo(
+    () => localTrackItems.filter(({ onWatch }) => !onWatch).length,
+    [localTrackItems],
+  );
+  const syncedCount = downloads.length - pendingLocalCount;
+  const visibleLocalItems = useMemo(() => {
+    const filtered = localTrackItems.filter((item) => {
+      if (trackFilter === "pending" && item.onWatch) {
+        return false;
+      }
+      if (trackFilter === "synced" && !item.onWatch) {
+        return false;
+      }
+
+      return searchTextMatchesTerms(item.searchText, searchTerms);
+    });
+
+    return sortLocalTrackItems(filtered, sort);
+  }, [localTrackItems, searchTerms, sort, trackFilter]);
+  const visibleIds = useMemo(
+    () => visibleLocalItems.map(({ track }) => track.id),
+    [visibleLocalItems],
+  );
+  const selectedVisibleCount = useMemo(
+    () =>
+      visibleLocalItems.filter(({ track }) => selectedIds.has(track.id)).length,
+    [selectedIds, visibleLocalItems],
+  );
+  const allVisibleSelected =
+    visibleLocalItems.length > 0 &&
+    selectedVisibleCount === visibleLocalItems.length;
+  const isTransferring = busy?.startsWith("transfer") ?? false;
+  const isDeletingLocal = busy?.startsWith("delete-local") ?? false;
+  const countLabel =
+    visibleLocalItems.length === downloads.length
+      ? `${downloads.length} track${downloads.length === 1 ? "" : "s"}`
+      : `${visibleLocalItems.length}/${downloads.length} tracks`;
+
+  const filterOptions: Array<{
+    value: LocalTrackFilter;
+    label: string;
+    count: number;
+  }> = [
+    { value: "all", label: "All", count: downloads.length },
+    { value: "pending", label: "Pending", count: pendingLocalCount },
+    { value: "synced", label: "Synced", count: syncedCount },
+  ];
 
   function handleBulkDelete() {
     if (selectedTracks.length === 0) {
@@ -112,6 +357,39 @@ export function LocalLibraryPanel({
     }
 
     onDeleteDownloads(selectedTracks);
+  }
+
+  function handleBulkTransfer() {
+    if (pendingSelectedTracks.length === 0) {
+      return;
+    }
+
+    onTransferDownloads(pendingSelectedTracks);
+  }
+
+  function handleSelectVisible() {
+    if (visibleIds.length === 0) {
+      return;
+    }
+
+    onSelectTracks(visibleIds, !allVisibleSelected);
+  }
+
+  function emptyTitle() {
+    if (downloads.length === 0) {
+      return "No local tracks";
+    }
+    if (searchTerms.length > 0) {
+      return "No matching local tracks";
+    }
+    if (trackFilter === "pending") {
+      return "No pending transfers";
+    }
+    if (trackFilter === "synced") {
+      return "No synced tracks";
+    }
+
+    return "No local tracks";
   }
 
   return (
@@ -122,31 +400,47 @@ export function LocalLibraryPanel({
           <h3>Local cache</h3>
         </div>
         <em>
-          {downloads.length} track{downloads.length === 1 ? "" : "s"} ·{" "}
-          {formatBytes(totalSize)}
+          {countLabel} · {formatBytes(totalSize)}
         </em>
       </header>
 
       <div className="library-panel-actions">
         {someSelected ? (
-          <button
-            className="secondary-button danger-button"
-            type="button"
-            disabled={busy === "delete-local-bulk"}
-            onClick={handleBulkDelete}
-          >
-            {busy === "delete-local-bulk" ? (
-              <Loader2 className="spin" size={17} aria-hidden="true" />
-            ) : (
-              <Trash2 size={17} aria-hidden="true" />
-            )}
-            Delete selected ({selectedIds.size})
-          </button>
+          <div className="library-bulk-actions">
+            {pendingSelectedTracks.length > 0 ? (
+              <button
+                className="primary-button compact-button"
+                type="button"
+                disabled={!watchConnected || isTransferring || isDeletingLocal}
+                onClick={handleBulkTransfer}
+              >
+                {busy === "transfer-selected" ? (
+                  <Loader2 className="spin" size={17} aria-hidden="true" />
+                ) : (
+                  <Upload size={17} aria-hidden="true" />
+                )}
+                Transfer selected ({pendingSelectedTracks.length})
+              </button>
+            ) : null}
+            <button
+              className="secondary-button compact-button danger-button"
+              type="button"
+              disabled={isDeletingLocal || isTransferring}
+              onClick={handleBulkDelete}
+            >
+              {busy === "delete-local-bulk" ? (
+                <Loader2 className="spin" size={17} aria-hidden="true" />
+              ) : (
+                <Trash2 size={17} aria-hidden="true" />
+              )}
+              Delete selected ({selectedIds.size})
+            </button>
+          </div>
         ) : canTransferAll ? (
           <button
-            className="primary-button"
+            className="primary-button compact-button"
             type="button"
-            disabled={busy?.startsWith("transfer") ?? false}
+            disabled={isTransferring}
             onClick={onTransferAll}
           >
             {busy === "transfer-all" ? (
@@ -154,44 +448,149 @@ export function LocalLibraryPanel({
             ) : (
               <Upload size={17} aria-hidden="true" />
             )}
-            Transfer all ({pendingTransferCount})
+            Transfer all ({pendingLocalCount})
           </button>
         ) : (
           <span className="library-panel-hint">
             {downloads.length === 0
               ? "Download tracks from YouTube or Spotify"
-              : `${pendingTransferCount} not on watch`}
+              : pendingLocalCount === 0
+                ? (
+                    <span className="library-sync-indicator">
+                      <CheckCircle2 size={15} aria-hidden="true" />
+                      All synced
+                    </span>
+                  )
+                : `${pendingLocalCount} not on watch`}
           </span>
         )}
       </div>
+
+      {downloads.length > 0 ? (
+        <div className="library-panel-tools">
+          <div className="library-search-field">
+            <Search size={15} aria-hidden="true" />
+            <input
+              type="search"
+              aria-label="Search local tracks"
+              placeholder="Search local tracks"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+            />
+            {searchQuery ? (
+              <button
+                className="library-search-clear"
+                type="button"
+                title="Clear search"
+                onClick={() => setSearchQuery("")}
+              >
+                <X size={14} aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
+          <div className="library-filter-group" aria-label="Local track filter">
+            {filterOptions.map((option) => (
+              <button
+                key={option.value}
+                className={
+                  trackFilter === option.value
+                    ? "library-filter-option active"
+                    : "library-filter-option"
+                }
+                type="button"
+                onClick={() => setTrackFilter(option.value)}
+              >
+                <span>{option.label}</span>
+                <small>{option.count}</small>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {downloads.length > 0 ? (
         <div className="library-selection-bar">
           <label className="library-select-all">
             <input
               type="checkbox"
-              aria-label="Select all local tracks"
-              checked={allSelected}
-              onChange={onToggleSelectAll}
+              aria-label="Select visible local tracks"
+              checked={allVisibleSelected}
+              disabled={visibleLocalItems.length === 0}
+              onChange={handleSelectVisible}
             />
-            Select all
+            Select visible
           </label>
+          {someSelected ? (
+            <div className="library-selection-meta">
+              <span>
+                {selectedTracks.length} selected · {formatBytes(selectedSize)}
+              </span>
+              <button
+                className="library-selection-clear"
+                type="button"
+                onClick={onClearSelection}
+              >
+                Clear
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {visibleLocalItems.length > 0 ? (
+        <div className="library-track-header">
+          <span />
+          <span />
+          <SortButton
+            label="Track"
+            sortKey="title"
+            sort={sort}
+            onSort={(key) =>
+              setSort((current) =>
+                nextSortState(current, key, localSortDefaults),
+              )
+            }
+          />
+          <SortButton
+            label="Size"
+            sortKey="size"
+            sort={sort}
+            onSort={(key) =>
+              setSort((current) =>
+                nextSortState(current, key, localSortDefaults),
+              )
+            }
+          />
+          <SortButton
+            label="Added"
+            sortKey="created"
+            sort={sort}
+            onSort={(key) =>
+              setSort((current) =>
+                nextSortState(current, key, localSortDefaults),
+              )
+            }
+          />
+          <SortButton
+            label="Status"
+            sortKey="status"
+            sort={sort}
+            onSort={(key) =>
+              setSort((current) =>
+                nextSortState(current, key, localSortDefaults),
+              )
+            }
+          />
+          <span />
         </div>
       ) : null}
 
       <div className="library-track-stack">
-        {downloads.length === 0 ? (
-          <LibraryEmptyState title="No local tracks" />
+        {visibleLocalItems.length === 0 ? (
+          <LibraryEmptyState title={emptyTitle()} />
         ) : (
-          downloads.map((track) => {
-            const onWatch = isLocalTrackOnWatch(
-              track,
-              watchTracks,
-              watchConnected,
-            );
+          visibleLocalItems.map(({ track, fileName, onWatch }) => {
             const selected = selectedIds.has(track.id);
-            const fileName =
-              track.filePath.split(/[/\\]/).pop() ?? track.title;
 
             return (
               <div
@@ -211,6 +610,7 @@ export function LocalLibraryPanel({
                   <small>{fileName}</small>
                 </span>
                 <span className="library-track-size">{formatBytes(track.sizeBytes)}</span>
+                <span className="library-track-date">{formatDate(track.createdAt)}</span>
                 <span
                   className={onWatch ? "badge ready library-track-status" : "badge library-track-status"}
                 >
@@ -225,7 +625,7 @@ export function LocalLibraryPanel({
                       !watchConnected ||
                       onWatch ||
                       busy === `transfer:${track.id}` ||
-                      busy === "transfer-all"
+                      isTransferring
                     }
                     onClick={() => onTransfer(track.id)}
                   >
@@ -241,7 +641,8 @@ export function LocalLibraryPanel({
                     title="Delete local track"
                     disabled={
                       busy === `delete-local:${track.id}` ||
-                      busy === "delete-local-bulk"
+                      isDeletingLocal ||
+                      isTransferring
                     }
                     onClick={() => onDeleteDownload(track)}
                   >
@@ -262,9 +663,9 @@ interface WatchLibraryPanelProps {
   watchConnected: boolean;
   busy: string | null;
   selectedPaths: Set<string>;
-  allSelected: boolean;
   onToggleSelect: (relativePath: string) => void;
-  onToggleSelectAll: () => void;
+  onSelectTracks: (relativePaths: string[], selected: boolean) => void;
+  onClearSelection: () => void;
   onDeleteWatchTrack: (track: WatchTrack) => void;
   onDeleteWatchTracks: (tracks: WatchTrack[]) => void;
 }
@@ -274,23 +675,89 @@ export function WatchLibraryPanel({
   watchConnected,
   busy,
   selectedPaths,
-  allSelected,
   onToggleSelect,
-  onToggleSelectAll,
+  onSelectTracks,
+  onClearSelection,
   onDeleteWatchTrack,
   onDeleteWatchTracks,
 }: WatchLibraryPanelProps) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [trackFilter, setTrackFilter] = useState<WatchTrackFilter>("all");
+  const [sort, setSort] = useState<SortState<WatchLibrarySortKey>>({
+    key: "name",
+    direction: "asc",
+  });
   const watchTracks = watchStatus?.tracks ?? [];
   const presentation = getWatchPresentation(watchStatus);
-  const someSelected = selectedPaths.size > 0;
-  const selectedTracks = watchTracks.filter((track) =>
-    selectedPaths.has(track.relativePath),
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const searchTerms = useMemo(
+    () => getSearchTerms(deferredSearchQuery),
+    [deferredSearchQuery],
   );
-  const totalSize = sumBytes(watchTracks);
+  const watchTrackItems = useMemo<WatchTrackSearchItem[]>(
+    () =>
+      watchTracks.map((track) => ({
+        track,
+        searchText: buildSearchText([track.name, track.relativePath]),
+      })),
+    [watchTracks],
+  );
+  const someSelected = selectedPaths.size > 0;
+  const selectedTracks = useMemo(
+    () => watchTracks.filter((track) => selectedPaths.has(track.relativePath)),
+    [selectedPaths, watchTracks],
+  );
+  const totalSize = useMemo(() => sumBytes(watchTracks), [watchTracks]);
+  const selectedSize = useMemo(() => sumBytes(selectedTracks), [selectedTracks]);
+  const visibleWatchItems = useMemo(() => {
+    const filtered = watchTrackItems.filter((item) => {
+      if (
+        trackFilter === "selected" &&
+        !selectedPaths.has(item.track.relativePath)
+      ) {
+        return false;
+      }
+
+      return searchTextMatchesTerms(item.searchText, searchTerms);
+    });
+
+    return sortWatchTrackItems(filtered, sort);
+  }, [searchTerms, selectedPaths, sort, trackFilter, watchTrackItems]);
+  const visibleWatchTracks = useMemo(
+    () => visibleWatchItems.map(({ track }) => track),
+    [visibleWatchItems],
+  );
+  const visiblePaths = useMemo(
+    () => visibleWatchTracks.map((track) => track.relativePath),
+    [visibleWatchTracks],
+  );
+  const selectedVisibleCount = useMemo(
+    () =>
+      visibleWatchTracks.filter((track) =>
+        selectedPaths.has(track.relativePath),
+      ).length,
+    [selectedPaths, visibleWatchTracks],
+  );
+  const allVisibleSelected =
+    visibleWatchTracks.length > 0 &&
+    selectedVisibleCount === visibleWatchTracks.length;
+  const isDeletingWatch = busy?.startsWith("delete-watch") ?? false;
+  const countLabel =
+    visibleWatchTracks.length === watchTracks.length
+      ? `${watchTracks.length} track${watchTracks.length === 1 ? "" : "s"}`
+      : `${visibleWatchTracks.length}/${watchTracks.length} tracks`;
   const storageLabel =
     watchStatus?.usedBytes != null
       ? `${formatBytes(watchStatus.usedBytes)} used`
       : formatBytes(totalSize);
+  const filterOptions: Array<{
+    value: WatchTrackFilter;
+    label: string;
+    count: number;
+  }> = [
+    { value: "all", label: "All", count: watchTracks.length },
+    { value: "selected", label: "Selected", count: selectedTracks.length },
+  ];
 
   function handleBulkDelete() {
     if (selectedTracks.length === 0) {
@@ -298,6 +765,31 @@ export function WatchLibraryPanel({
     }
 
     onDeleteWatchTracks(selectedTracks);
+  }
+
+  function handleSelectVisible() {
+    if (visiblePaths.length === 0) {
+      return;
+    }
+
+    onSelectTracks(visiblePaths, !allVisibleSelected);
+  }
+
+  function emptyTitle() {
+    if (!watchConnected) {
+      return "Connect a COROS watch";
+    }
+    if (watchTracks.length === 0) {
+      return "No MP3 files on the watch";
+    }
+    if (searchTerms.length > 0) {
+      return "No matching watch tracks";
+    }
+    if (trackFilter === "selected") {
+      return "No selected watch tracks";
+    }
+
+    return "No MP3 files on the watch";
   }
 
   return (
@@ -311,7 +803,7 @@ export function WatchLibraryPanel({
         </div>
         <em>
           {watchConnected
-            ? `${watchTracks.length} track${watchTracks.length === 1 ? "" : "s"} · ${storageLabel}`
+            ? `${countLabel} · ${storageLabel}`
             : "Not connected"}
         </em>
       </header>
@@ -321,7 +813,7 @@ export function WatchLibraryPanel({
           <button
             className="secondary-button danger-button"
             type="button"
-            disabled={busy === "delete-watch-bulk"}
+            disabled={isDeletingWatch}
             onClick={handleBulkDelete}
           >
             {busy === "delete-watch-bulk" ? (
@@ -343,69 +835,201 @@ export function WatchLibraryPanel({
       </div>
 
       {!watchConnected ? (
-        <LibraryEmptyState title="Connect a COROS watch" />
+        <LibraryEmptyState title={emptyTitle()} />
       ) : watchTracks.length > 0 ? (
         <>
+          <div className="library-panel-tools">
+            <div className="library-search-field">
+              <Search size={15} aria-hidden="true" />
+              <input
+                type="search"
+                aria-label="Search watch tracks"
+                placeholder="Search watch tracks"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+              />
+              {searchQuery ? (
+                <button
+                  className="library-search-clear"
+                  type="button"
+                  title="Clear search"
+                  onClick={() => setSearchQuery("")}
+                >
+                  <X size={14} aria-hidden="true" />
+                </button>
+              ) : null}
+            </div>
+            <div className="library-filter-group" aria-label="Watch track filter">
+              {filterOptions.map((option) => (
+                <button
+                  key={option.value}
+                  className={
+                    trackFilter === option.value
+                      ? "library-filter-option active"
+                      : "library-filter-option"
+                  }
+                  type="button"
+                  onClick={() => setTrackFilter(option.value)}
+                >
+                  <span>{option.label}</span>
+                  <small>{option.count}</small>
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="library-selection-bar">
             <label className="library-select-all">
               <input
                 type="checkbox"
-                aria-label="Select all watch tracks"
-                checked={allSelected}
-                onChange={onToggleSelectAll}
+                aria-label="Select visible watch tracks"
+                checked={allVisibleSelected}
+                disabled={visibleWatchTracks.length === 0}
+                onChange={handleSelectVisible}
               />
-              Select all
+              Select visible
             </label>
-          </div>
-          <div className="library-track-stack">
-            {watchTracks.map((track) => {
-              const selected = selectedPaths.has(track.relativePath);
-
-              return (
-                <div
-                  key={track.relativePath}
-                  className={
-                    selected ? "library-track-row is-selected" : "library-track-row"
-                  }
+            {someSelected ? (
+              <div className="library-selection-meta">
+                <span>
+                  {selectedTracks.length} selected · {formatBytes(selectedSize)}
+                </span>
+                <button
+                  className="library-selection-clear"
+                  type="button"
+                  onClick={onClearSelection}
                 >
-                  <input
-                    type="checkbox"
-                    className="library-track-select"
-                    aria-label={`Select ${track.name}`}
-                    checked={selected}
-                    onChange={() => onToggleSelect(track.relativePath)}
-                  />
-                  <span className="library-track-art library-track-art--watch" aria-hidden="true" />
-                  <span className="library-track-meta">
-                    <strong>{track.name}</strong>
-                    <small>{track.relativePath}</small>
-                  </span>
-                  <span className="library-track-size">{formatBytes(track.sizeBytes)}</span>
-                  <span className="badge ready library-track-status">On watch</span>
-                  <div className="library-track-actions">
-                    <button
-                      className="icon-button danger"
-                      type="button"
-                      title="Delete from watch"
-                      disabled={
-                        !watchConnected ||
-                        busy === `delete-watch:${track.relativePath}` ||
-                        busy === "delete-watch-bulk"
-                      }
-                      onClick={() => onDeleteWatchTrack(track)}
-                    >
-                      <Trash2 size={17} aria-hidden="true" />
-                    </button>
+                  Clear
+                </button>
+              </div>
+            ) : null}
+          </div>
+          {visibleWatchTracks.length > 0 ? (
+            <div className="library-track-header">
+              <span />
+              <span />
+              <SortButton
+                label="Track"
+                sortKey="name"
+                sort={sort}
+                onSort={(key) =>
+                  setSort((current) =>
+                    nextSortState(current, key, watchSortDefaults),
+                  )
+                }
+              />
+              <SortButton
+                label="Size"
+                sortKey="size"
+                sort={sort}
+                onSort={(key) =>
+                  setSort((current) =>
+                    nextSortState(current, key, watchSortDefaults),
+                  )
+                }
+              />
+              <SortButton
+                label="Modified"
+                sortKey="modified"
+                sort={sort}
+                onSort={(key) =>
+                  setSort((current) =>
+                    nextSortState(current, key, watchSortDefaults),
+                  )
+                }
+              />
+              <span>Status</span>
+              <span />
+            </div>
+          ) : null}
+          <div className="library-track-stack">
+            {visibleWatchTracks.length === 0 ? (
+              <LibraryEmptyState title={emptyTitle()} />
+            ) : (
+              visibleWatchTracks.map((track) => {
+                const selected = selectedPaths.has(track.relativePath);
+
+                return (
+                  <div
+                    key={track.relativePath}
+                    className={
+                      selected ? "library-track-row is-selected" : "library-track-row"
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      className="library-track-select"
+                      aria-label={`Select ${track.name}`}
+                      checked={selected}
+                      onChange={() => onToggleSelect(track.relativePath)}
+                    />
+                    <span className="library-track-art library-track-art--watch" aria-hidden="true" />
+                    <span className="library-track-meta">
+                      <strong>{track.name}</strong>
+                      <small>{track.relativePath}</small>
+                    </span>
+                    <span className="library-track-size">{formatBytes(track.sizeBytes)}</span>
+                    <span className="library-track-date">{formatDate(track.modifiedAt)}</span>
+                    <span className="badge ready library-track-status">On watch</span>
+                    <div className="library-track-actions">
+                      <button
+                        className="icon-button danger"
+                        type="button"
+                        title="Delete from watch"
+                        disabled={
+                          !watchConnected ||
+                          busy === `delete-watch:${track.relativePath}` ||
+                          isDeletingWatch
+                        }
+                        onClick={() => onDeleteWatchTrack(track)}
+                      >
+                        <Trash2 size={17} aria-hidden="true" />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </>
       ) : (
-        <LibraryEmptyState title="No MP3 files on the watch" />
+        <LibraryEmptyState title={emptyTitle()} />
       )}
     </section>
+  );
+}
+
+interface SortButtonProps<Key extends string> {
+  label: string;
+  sortKey: Key;
+  sort: SortState<Key>;
+  onSort: (key: Key) => void;
+}
+
+function SortButton<Key extends string>({
+  label,
+  sortKey,
+  sort,
+  onSort,
+}: SortButtonProps<Key>) {
+  const active = sort.key === sortKey;
+  const Icon = active
+    ? sort.direction === "asc"
+      ? ArrowUp
+      : ArrowDown
+    : ArrowUpDown;
+  const nextDirection =
+    active && sort.direction === "asc" ? "descending" : "ascending";
+
+  return (
+    <button
+      className={active ? "library-sort-button active" : "library-sort-button"}
+      type="button"
+      aria-label={`Sort by ${label} ${nextDirection}`}
+      onClick={() => onSort(sortKey)}
+    >
+      {label}
+      <Icon size={13} aria-hidden="true" />
+    </button>
   );
 }
 

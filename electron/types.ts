@@ -34,6 +34,16 @@ export interface WatchTrack {
 
 export type WatchModelId = "pace-pro" | "pace-4" | "pace-3" | "nomad";
 
+export type WatchConnectionSmokeOptionId =
+  | "auto"
+  | "none"
+  | "pace-pro"
+  | "pace-4"
+  | "pace-3"
+  | "nomad"
+  | "unknown-pace"
+  | "installer";
+
 export interface WatchStatus {
   connected: boolean;
   checkedAt: string;
@@ -253,10 +263,26 @@ export interface TrainingHubSportStatistic {
   trainingLoad?: number;
 }
 
+export interface TrainingHubZoneDistributionEntry {
+  index: number;
+  ratio?: number;
+  value?: number;
+}
+
+export interface TrainingHubZoneDistributions {
+  hrTrainingLoad: TrainingHubZoneDistributionEntry[];
+  hrDistance: TrainingHubZoneDistributionEntry[];
+  hrTime: TrainingHubZoneDistributionEntry[];
+  distanceFrequency: TrainingHubZoneDistributionEntry[];
+  distanceTrainingLoad: TrainingHubZoneDistributionEntry[];
+  distanceTime: TrainingHubZoneDistributionEntry[];
+}
+
 export interface TrainingHubAnalytics {
   dayList: TrainingHubDailyMetric[];
   weekList: Record<string, unknown>[];
   sportStatistics: TrainingHubSportStatistic[];
+  zoneDistributions: TrainingHubZoneDistributions;
   raw?: Record<string, unknown>;
 }
 

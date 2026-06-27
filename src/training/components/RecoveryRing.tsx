@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from "react";
+import { TrainingSummaryTiles } from "./TrainingSummaryTiles";
 import { recoveryTone } from "../parsers";
 import type { TrainingSummaryMetrics } from "../types";
 
@@ -14,7 +15,7 @@ function readinessCopy(
       return {
         label: "Ready",
         message:
-          "Stamina is stable and recovery is strong — you're cleared for a hard session."
+          "Recovery is strong. You're cleared for a hard session."
       };
     case "mid":
       return {
@@ -38,8 +39,7 @@ function readinessCopy(
 export function RecoveryRing({ summary }: RecoveryRingProps) {
   const [isReady, setIsReady] = useState(false);
   const ambientFilterId = useId();
-  const stamina = summary.staminaLevel ?? 0;
-  const recovery = summary.recoveryPct ?? stamina;
+  const recovery = summary.recoveryPct ?? 0;
   const percent = Math.max(0, Math.min(100, recovery));
   const hasData = percent > 0;
   const radius = 54;
@@ -109,22 +109,12 @@ export function RecoveryRing({ summary }: RecoveryRingProps) {
 
         <p className="training-ring-message">{message}</p>
 
-        <div className="training-ring-notes">
-          <div>
-            <span>Stamina</span>
-            <strong>
-              {summary.staminaLevel !== undefined
-                ? Math.round(summary.staminaLevel)
-                : "–"}
-            </strong>
-          </div>
-          <div>
-            <span>Daily load</span>
-            <strong>
-              {summary.todayLoad !== undefined ? Math.round(summary.todayLoad) : "–"}
-            </strong>
-          </div>
-        </div>
+        <TrainingSummaryTiles
+          summary={summary}
+          layout="stack"
+          metrics={["load", "heart"]}
+          className="training-ring-metrics"
+        />
       </div>
     </section>
   );

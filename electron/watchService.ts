@@ -3,11 +3,75 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { DriveCandidate, WatchStatus, WatchTrack } from "./types";
+import type {
+  DriveCandidate,
+  WatchConnectionSmokeOptionId,
+  WatchStatus,
+  WatchTrack
+} from "./types";
 import { fallbackBytesForModel, resolveWatchModel } from "./watchModels";
 
 const execFileAsync = promisify(execFile);
 const INSTALLER_VOLUME_PATTERN = /desktop|setup|installer|\.dmg/i;
+const ORIGINAL_COROS_WATCH_PATH = process.env.COROS_WATCH_PATH;
+
+interface WatchConnectionSmokeFixture {
+  volumeName: string;
+  createMusicFolder: boolean;
+  trackNames: string[];
+  totalBytes?: number;
+}
+
+const WATCH_CONNECTION_SMOKE_FIXTURES: Record<
+  Exclude<WatchConnectionSmokeOptionId, "auto">,
+  WatchConnectionSmokeFixture
+> = {
+  none: {
+    volumeName: "COROS WATCH EMPTY",
+    createMusicFolder: false,
+    trackNames: []
+  },
+  "pace-pro": {
+    volumeName: "COROS PACE PRO",
+    createMusicFolder: true,
+    trackNames: ["Existing Track.mp3", "Workout Mix.mp3"],
+    totalBytes: fallbackBytesForModel("pace-pro")
+  },
+  "pace-4": {
+    volumeName: "COROS PACE 4",
+    createMusicFolder: true,
+    trackNames: ["Warmup.mp3"],
+    totalBytes: fallbackBytesForModel("pace-4")
+  },
+  "pace-3": {
+    volumeName: "COROS PACE 3",
+    createMusicFolder: true,
+    trackNames: ["Cooldown.mp3"],
+    totalBytes: fallbackBytesForModel("pace-3")
+  },
+  nomad: {
+    volumeName: "COROS NOMAD",
+    createMusicFolder: true,
+    trackNames: ["Trail Mix.mp3"],
+    totalBytes: fallbackBytesForModel("nomad")
+  },
+  "unknown-pace": {
+    volumeName: "COROS PACE",
+    createMusicFolder: true,
+    trackNames: ["Track.mp3"],
+    totalBytes: fallbackBytesForModel("pace-4")
+  },
+  installer: {
+    volumeName: "COROS Desktop-0.1.0-arm64",
+    createMusicFolder: false,
+    trackNames: []
+  }
+};
+
+let activeSmokeTempRoot: string | undefined;
+let activeSmokeWatchRoot: string | undefined;
+let activeSmokeTotalBytes: number | undefined;
+let activeWatchConnectionSmokeOptionId: WatchConnectionSmokeOptionId = "auto";
 
 interface RawVolume {
   name: string;
@@ -59,6 +123,62 @@ export async function getWatchStatus(): Promise<WatchStatus> {
       candidates: [],
       error: error instanceof Error ? error.message : String(error)
     };
+  }
+}
+
+export function getWatchConnectionSmokeOption(): WatchConnectionSmokeOptionId {
+  return activeWatchConnectionSmokeOptionId;
+}
+
+export async function setWatchConnectionSmokeOption(
+  optionId: WatchConnectionSmokeOptionId
+): Promise<WatchStatus> {
+  if (optionId === "auto") {
+    activeWatchConnectionSmokeOptionId = "auto";
+    await clearActiveSmokeFixture();
+    restoreOriginalWatchPathOverride();
+    return getWatchStatus();
+  }
+
+  const fixture = WATCH_CONNECTION_SMOKE_FIXTURES[optionId];
+  if (!fixture) {
+    throw new Error(`Unknown watch smoke option: ${optionId}`);
+  }
+
+  await clearActiveSmokeFixture();
+  restoreOriginalWatchPathOverride();
+
+  try {
+    const tempRoot = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), `coroslink-watch-smoke-${optionId}-`)
+    );
+    const watchRoot = path.join(tempRoot, fixture.volumeName);
+    await fs.promises.mkdir(watchRoot, { recursive: true });
+
+    if (fixture.createMusicFolder) {
+      const musicPath = path.join(watchRoot, "Music");
+      await fs.promises.mkdir(musicPath, { recursive: true });
+
+      for (const trackName of fixture.trackNames) {
+        await fs.promises.writeFile(path.join(musicPath, trackName), "mp3");
+      }
+
+      await fs.promises.writeFile(path.join(musicPath, "._Ghost.mp3"), "junk");
+      await fs.promises.writeFile(path.join(musicPath, ".DS_Store"), "junk");
+      await fs.promises.writeFile(path.join(musicPath, "notes.txt"), "ignore");
+    }
+
+    activeSmokeTempRoot = tempRoot;
+    activeSmokeWatchRoot = watchRoot;
+    activeSmokeTotalBytes = fixture.totalBytes;
+    activeWatchConnectionSmokeOptionId = optionId;
+    process.env.COROS_WATCH_PATH = watchRoot;
+    return getWatchStatus();
+  } catch (error) {
+    activeWatchConnectionSmokeOptionId = "auto";
+    await clearActiveSmokeFixture();
+    restoreOriginalWatchPathOverride();
+    throw error;
   }
 }
 
@@ -266,6 +386,16 @@ function isWatchMusicFile(name: string): boolean {
 }
 
 function getStorageStats(rootPath: string, volumeName: string): StorageStats {
+  if (
+    activeSmokeWatchRoot &&
+    path.resolve(rootPath) === path.resolve(activeSmokeWatchRoot)
+  ) {
+    return {
+      totalBytes:
+        activeSmokeTotalBytes ?? fallbackBytesForModel(resolveWatchModel(volumeName))
+    };
+  }
+
   try {
     const stats = fs.statfsSync(rootPath);
     const totalBytes = stats.blocks * stats.bsize;
@@ -280,6 +410,25 @@ function getStorageStats(rootPath: string, volumeName: string): StorageStats {
     return {
       totalBytes: fallbackBytesForModel(model)
     };
+  }
+}
+
+async function clearActiveSmokeFixture(): Promise<void> {
+  const tempRoot = activeSmokeTempRoot;
+  activeSmokeTempRoot = undefined;
+  activeSmokeWatchRoot = undefined;
+  activeSmokeTotalBytes = undefined;
+
+  if (tempRoot) {
+    await fs.promises.rm(tempRoot, { recursive: true, force: true });
+  }
+}
+
+function restoreOriginalWatchPathOverride(): void {
+  if (ORIGINAL_COROS_WATCH_PATH) {
+    process.env.COROS_WATCH_PATH = ORIGINAL_COROS_WATCH_PATH;
+  } else {
+    delete process.env.COROS_WATCH_PATH;
   }
 }
 

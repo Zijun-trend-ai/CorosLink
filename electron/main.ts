@@ -36,8 +36,19 @@ import {
   loginTrainingHub,
   logoutTrainingHub
 } from "./trainingHubService";
-import type { DownloadJob, SpotifyConfig, TrainingHubActivityFileType } from "./types";
-import { deleteWatchTrack, getWatchStatus, transferFileToWatch } from "./watchService";
+import type {
+  DownloadJob,
+  SpotifyConfig,
+  TrainingHubActivityFileType,
+  WatchConnectionSmokeOptionId
+} from "./types";
+import {
+  deleteWatchTrack,
+  getWatchConnectionSmokeOption,
+  getWatchStatus,
+  setWatchConnectionSmokeOption,
+  transferFileToWatch
+} from "./watchService";
 import {
   configureYouTubeBrowserSession,
   registerYouTubeBrowserHandlers,
@@ -142,6 +153,16 @@ app.on("window-all-closed", () => {
 
 function registerIpcHandlers(): void {
   ipcMain.handle("watch:getStatus", () => getWatchStatus());
+
+  ipcMain.handle("watch:getConnectionSmokeOption", () =>
+    getWatchConnectionSmokeOption()
+  );
+
+  ipcMain.handle(
+    "watch:setConnectionSmokeOption",
+    (_event, optionId: WatchConnectionSmokeOptionId) =>
+      setWatchConnectionSmokeOption(optionId)
+  );
 
   ipcMain.handle("watch:deleteTrack", async (_event, relativePath: string) => {
     await deleteWatchTrack(relativePath);

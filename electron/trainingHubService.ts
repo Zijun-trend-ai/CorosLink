@@ -19,7 +19,9 @@ import type {
   TrainingHubSleepHrvSummary,
   TrainingHubStatus,
   TrainingHubThresholdZone,
-  TrainingHubUpcomingWorkout
+  TrainingHubUpcomingWorkout,
+  TrainingHubZoneDistributionEntry,
+  TrainingHubZoneDistributions
 } from "./types";
 
 interface LoginResult {
@@ -712,13 +714,67 @@ function parseAnalytics(raw: Record<string, unknown>): TrainingHubAnalytics {
   );
   const weekList = extractArray(raw, ["weekList", "evoLab.weekList"]);
   const sportStatistics = extractSportStatistics(raw);
+  const summary = pickObject(raw, ["summaryInfo"]) ?? {};
 
   return {
     dayList,
     weekList,
     sportStatistics,
+    zoneDistributions: parseZoneDistributions(summary),
     raw
   };
+}
+
+function parseZoneDistributions(
+  summary: Record<string, unknown>
+): TrainingHubZoneDistributions {
+  return {
+    hrTrainingLoad: parseZoneDistributionEntries(summary.hrTlAreaList),
+    hrDistance: parseZoneDistributionEntries(summary.hrDisAreaList),
+    hrTime: parseZoneDistributionEntries(summary.hrTimeAreaList),
+    distanceFrequency: parseZoneDistributionEntries(
+      summary.distanceCountAreaList
+    ),
+    distanceTrainingLoad: parseZoneDistributionEntries(
+      summary.distanceTlAreaList
+    ),
+    distanceTime: parseZoneDistributionEntries(summary.distanceTimeAreaList)
+  };
+}
+
+function parseZoneDistributionEntries(
+  raw: unknown
+): TrainingHubZoneDistributionEntry[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw
+    .map((item): TrainingHubZoneDistributionEntry | null => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const entry = item as Record<string, unknown>;
+      const index = toOptionalNumber(entry.index);
+
+      if (index === undefined) {
+        return null;
+      }
+
+      const ratio = toOptionalNumber(entry.ratio);
+      const value = toOptionalNumber(entry.value);
+
+      return {
+        index,
+        ...(ratio !== undefined ? { ratio } : {}),
+        ...(value !== undefined ? { value } : {})
+      };
+    })
+    .filter(
+      (entry): entry is TrainingHubZoneDistributionEntry => entry !== null
+    )
+    .sort((left, right) => left.index - right.index);
 }
 
 const RECORD_TYPE_LABELS: Record<number, string> = {

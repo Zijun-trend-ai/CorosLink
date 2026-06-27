@@ -839,6 +839,46 @@ export default function App() {
     }
   }
 
+  async function handleTransferDownloads(tracks: LocalTrack[]) {
+    if (!api || tracks.length === 0) {
+      return;
+    }
+
+    if (!watchStatus?.connected) {
+      setError("Connect your watch before transferring tracks.");
+      return;
+    }
+
+    const watchTracks = watchStatus.tracks ?? [];
+    const pending = tracks.filter(
+      (track) => !isLocalTrackOnWatch(track, watchTracks, true),
+    );
+    if (pending.length === 0) {
+      return;
+    }
+
+    setBusy("transfer-selected");
+    setError(null);
+    setMessage(null);
+
+    try {
+      for (const track of pending) {
+        await api.transferLocalTrack(track.id);
+      }
+      setMessage(
+        pending.length === 1
+          ? "Track transferred to the watch."
+          : `${pending.length} selected tracks transferred to the watch.`,
+      );
+      await refreshAll();
+    } catch (caught) {
+      setError(toErrorMessage(caught));
+      await refreshAll();
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function handleDeleteWatchTrack(track: WatchTrack) {
     if (!api || !window.confirm(`Delete "${track.name}" from the watch?`)) {
       return;
@@ -1102,6 +1142,7 @@ export default function App() {
                     lastOutput={lastOutput}
                     onTransfer={handleTransfer}
                     onTransferAll={handleTransferAll}
+                    onTransferDownloads={handleTransferDownloads}
                     onDeleteDownload={handleDeleteDownload}
                     onDeleteDownloads={handleDeleteDownloads}
                     onDeleteWatchTrack={handleDeleteWatchTrack}
@@ -1689,6 +1730,7 @@ interface MediaLibraryTabProps {
   lastOutput: string[];
   onTransfer: (id: string) => void;
   onTransferAll: () => void;
+  onTransferDownloads: (tracks: LocalTrack[]) => void;
   onDeleteDownload: (track: LocalTrack) => void;
   onDeleteDownloads: (tracks: LocalTrack[]) => void;
   onDeleteWatchTrack: (track: WatchTrack) => void;
@@ -1703,6 +1745,7 @@ function MediaLibraryTab({
   lastOutput,
   onTransfer,
   onTransferAll,
+  onTransferDownloads,
   onDeleteDownload,
   onDeleteDownloads,
   onDeleteWatchTrack,
@@ -1734,10 +1777,6 @@ function MediaLibraryTab({
     });
   }, [watchTracks]);
 
-  const allLocalSelected =
-    downloads.length > 0 && selectedIds.size === downloads.length;
-  const allWatchSelected =
-    watchTracks.length > 0 && selectedWatchPaths.size === watchTracks.length;
   const pendingTransferCount = useMemo(
     () => countPendingTransfers(downloads, watchTracks, watchConnected),
     [downloads, watchTracks, watchConnected],
@@ -1756,18 +1795,22 @@ function MediaLibraryTab({
     });
   }
 
-  function toggleSelectAllLocal() {
+  function setLocalTracksSelected(ids: string[], selected: boolean) {
     setSelectedIds((current) => {
-      if (downloads.length === 0) {
-        return current;
+      const next = new Set(current);
+      for (const id of ids) {
+        if (selected) {
+          next.add(id);
+        } else {
+          next.delete(id);
+        }
       }
-
-      if (current.size === downloads.length) {
-        return new Set();
-      }
-
-      return new Set(downloads.map((track) => track.id));
+      return next;
     });
+  }
+
+  function clearLocalSelection() {
+    setSelectedIds(new Set());
   }
 
   function toggleSelectWatch(relativePath: string) {
@@ -1782,18 +1825,26 @@ function MediaLibraryTab({
     });
   }
 
-  function toggleSelectAllWatch() {
+  function setWatchTracksSelected(relativePaths: string[], selected: boolean) {
     setSelectedWatchPaths((current) => {
-      if (watchTracks.length === 0) {
-        return current;
+      const next = new Set(current);
+      for (const relativePath of relativePaths) {
+        if (selected) {
+          next.add(relativePath);
+        } else {
+          next.delete(relativePath);
+        }
       }
-
-      if (current.size === watchTracks.length) {
-        return new Set();
-      }
-
-      return new Set(watchTracks.map((track) => track.relativePath));
+      return next;
     });
+  }
+
+  function clearWatchSelection() {
+    setSelectedWatchPaths(new Set());
+  }
+
+  function handleLocalBulkTransfer(tracks: LocalTrack[]) {
+    onTransferDownloads(tracks);
   }
 
   function handleLocalBulkDelete(tracks: LocalTrack[]) {
@@ -1820,13 +1871,13 @@ function MediaLibraryTab({
               watchConnected={watchConnected}
               busy={busy}
               selectedIds={selectedIds}
-              allSelected={allLocalSelected}
-              pendingTransferCount={pendingTransferCount}
               canTransferAll={canTransferAll}
               onToggleSelect={toggleSelect}
-              onToggleSelectAll={toggleSelectAllLocal}
+              onSelectTracks={setLocalTracksSelected}
+              onClearSelection={clearLocalSelection}
               onTransfer={onTransfer}
               onTransferAll={onTransferAll}
+              onTransferDownloads={handleLocalBulkTransfer}
               onDeleteDownload={onDeleteDownload}
               onDeleteDownloads={handleLocalBulkDelete}
             />
@@ -1837,9 +1888,9 @@ function MediaLibraryTab({
               watchConnected={watchConnected}
               busy={busy}
               selectedPaths={selectedWatchPaths}
-              allSelected={allWatchSelected}
               onToggleSelect={toggleSelectWatch}
-              onToggleSelectAll={toggleSelectAllWatch}
+              onSelectTracks={setWatchTracksSelected}
+              onClearSelection={clearWatchSelection}
               onDeleteWatchTrack={onDeleteWatchTrack}
               onDeleteWatchTracks={handleWatchBulkDelete}
             />

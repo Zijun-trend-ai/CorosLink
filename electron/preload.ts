@@ -22,6 +22,7 @@ import type {
   TrainingHubStatus,
   TrainingHubUpcomingWorkout,
   TransferResult,
+  WatchConnectionSmokeOptionId,
   WatchStatus,
   YouTubeHistoryEntry
 } from "./types";
@@ -29,6 +30,12 @@ import type {
 const api = {
   getWatchStatus: (): Promise<WatchStatus> =>
     ipcRenderer.invoke("watch:getStatus"),
+  getWatchConnectionSmokeOption: (): Promise<WatchConnectionSmokeOptionId> =>
+    ipcRenderer.invoke("watch:getConnectionSmokeOption"),
+  setWatchConnectionSmokeOption: (
+    optionId: WatchConnectionSmokeOptionId
+  ): Promise<WatchStatus> =>
+    ipcRenderer.invoke("watch:setConnectionSmokeOption", optionId),
   deleteWatchTrack: (relativePath: string): Promise<WatchStatus> =>
     ipcRenderer.invoke("watch:deleteTrack", relativePath),
   transferLocalTrack: (id: string): Promise<TransferResult> =>

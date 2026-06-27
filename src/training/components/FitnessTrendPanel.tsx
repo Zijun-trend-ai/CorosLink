@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import type { TrainingHubDailyMetric } from "../../../electron/types";
-import { formatSignedDelta } from "../formatters";
+import {
+  formatHappenDayLabel,
+  formatOptionalNumber,
+  recentTrainingHubDateList
+} from "../formatters";
 import type { TrainingHubSnapshot } from "../types";
 
 interface FitnessTrendPanelProps {
@@ -28,35 +32,44 @@ function mergeDayList(snapshot: TrainingHubSnapshot | null): TrainingHubDailyMet
   );
 }
 
-function delta(values: number[]): number | undefined {
-  return values.length >= 2 ? values[values.length - 1] - values[0] : undefined;
+function formatCompactHappenDay(value: string): string {
+  if (!/^\d{8}$/.test(value)) {
+    return value;
+  }
+
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(4, 6)) - 1;
+  const day = Number(value.slice(6, 8));
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric"
+  }).format(new Date(year, month, day));
 }
 
 export function FitnessTrendPanel({ snapshot }: FitnessTrendPanelProps) {
   const [isReady, setIsReady] = useState(false);
   const days = mergeDayList(snapshot);
-
-  const hasStamina = days.some((day) => Number.isFinite(day.staminaLevel));
-  const bars = days
-    .map((day) => ({
-      key: day.happenDay,
-      value: hasStamina ? day.staminaLevel : day.trainingLoad
-    }))
-    .filter((bar): bar is { key: string; value: number } =>
-      Number.isFinite(bar.value)
-    )
-    .slice(-8);
-
-  const maxValue = bars.reduce((max, bar) => Math.max(max, bar.value), 0) || 1;
-
-  const fitnessDelta = delta(
-    days.map((day) => day.staminaLevel).filter((v): v is number => Number.isFinite(v))
+  const dayMap = new Map(days.map((day) => [day.happenDay, day]));
+  const dateKeys = recentTrainingHubDateList(7).reverse();
+  const hasFitnessScore = dateKeys.some((key) =>
+    Number.isFinite(dayMap.get(key)?.staminaLevel)
   );
-  const fatigueDelta = delta(
-    days
-      .map((day) => day.tiredRateNew)
-      .filter((v): v is number => Number.isFinite(v))
-  );
+  const metricLabel = hasFitnessScore ? "Fitness" : "Training load";
+  const bars = dateKeys.map((key) => {
+    const day = dayMap.get(key);
+    const value = hasFitnessScore ? day?.staminaLevel : day?.trainingLoad;
+
+    return {
+      key,
+      day,
+      value: Number.isFinite(value) ? value : undefined,
+      label: formatCompactHappenDay(key),
+      fullLabel: formatHappenDayLabel(key)
+    };
+  });
+  const hasTrendData = bars.some((bar) => Number.isFinite(bar.value));
+  const maxValue =
+    bars.reduce((max, bar) => Math.max(max, bar.value ?? 0), 0) || 1;
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setIsReady(true));
@@ -68,54 +81,61 @@ export function FitnessTrendPanel({ snapshot }: FitnessTrendPanelProps) {
       <div className="training-fitness-header">
         <p className="eyebrow">Fitness Trend</p>
         <span className="training-range-pill">
-          {bars.length > 0 ? `Last ${bars.length} days` : "No data"}
+          {hasTrendData ? "Last 7 days" : "No data"}
         </span>
       </div>
 
-      {bars.length > 0 ? (
-        <>
-          <div className="training-fitness-bars" aria-hidden="true">
-            {bars.map((bar, index) => (
+      {hasTrendData ? (
+        <div
+          className="training-fitness-bars"
+          role="list"
+          aria-label={`${metricLabel} trend over the last 7 days`}
+        >
+          {bars.map((bar, index) => {
+            const valueLabel =
+              bar.value !== undefined ? formatOptionalNumber(bar.value) : "No data";
+            const loadLabel =
+              bar.day?.trainingLoad !== undefined
+                ? formatOptionalNumber(bar.day.trainingLoad)
+                : "No data";
+            const fatigueLabel =
+              bar.day?.tiredRateNew !== undefined
+                ? formatOptionalNumber(bar.day.tiredRateNew)
+                : "No data";
+
+            return (
               <span
                 key={bar.key}
-                className="training-fitness-bar"
-                style={{
-                  height: isReady
-                    ? `${Math.max(16, (bar.value / maxValue) * 100)}%`
-                    : "0%",
-                  transitionDelay: `${index * 60}ms`
-                }}
-              />
-            ))}
-          </div>
-
-          <div className="training-fitness-tiles">
-            <div
-              className={`training-fitness-tile ${
-                fitnessDelta === undefined
-                  ? ""
-                  : fitnessDelta >= 0
-                    ? "is-good"
-                    : "is-warn"
-              }`}
-            >
-              <strong>{formatSignedDelta(fitnessDelta)}</strong>
-              <span>base fitness</span>
-            </div>
-            <div
-              className={`training-fitness-tile ${
-                fatigueDelta === undefined
-                  ? ""
-                  : fatigueDelta <= 0
-                    ? "is-good"
-                    : "is-warn"
-              }`}
-            >
-              <strong>{formatSignedDelta(fatigueDelta)}</strong>
-              <span>fatigue</span>
-            </div>
-          </div>
-        </>
+                className={`training-fitness-day${
+                  bar.value === undefined ? " is-empty" : ""
+                }`}
+                role="listitem"
+                tabIndex={0}
+                aria-label={`${bar.fullLabel}: ${metricLabel} ${valueLabel}, load ${loadLabel}, fatigue ${fatigueLabel}`}
+              >
+                <span
+                  className="training-fitness-bar"
+                  style={{
+                    height:
+                      isReady && bar.value !== undefined
+                        ? `${Math.max(10, (bar.value / maxValue) * 100)}%`
+                        : "0%",
+                    transitionDelay: `${index * 60}ms`
+                  }}
+                />
+                <span className="training-fitness-date">{bar.label}</span>
+                <span className="training-fitness-tooltip" role="tooltip">
+                  <strong>{bar.fullLabel}</strong>
+                  <span>
+                    {metricLabel}: {valueLabel}
+                  </span>
+                  <span>Load: {loadLabel}</span>
+                  <span>Fatigue: {fatigueLabel}</span>
+                </span>
+              </span>
+            );
+          })}
+        </div>
       ) : (
         <p className="training-empty-state">No fitness trend data yet.</p>
       )}

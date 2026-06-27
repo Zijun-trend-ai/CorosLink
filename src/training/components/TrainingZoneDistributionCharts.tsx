@@ -1,0 +1,751 @@
+import { useEffect, useId, useRef, useState } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
+import { Check, ChevronDown } from "lucide-react";
+import {
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip
+} from "recharts";
+import type { TooltipContentProps } from "recharts";
+import type {
+  TrainingHubAnalytics,
+  TrainingHubActivity,
+  TrainingHubThresholdZone,
+  TrainingHubZoneDistributionEntry
+} from "../../../electron/types";
+import { formatDistanceMeters, formatDurationSeconds } from "../formatters";
+
+interface TrainingZoneDistributionChartsProps {
+  lthrZones: TrainingHubThresholdZone[];
+  activities: TrainingHubActivity[];
+  analytics: TrainingHubAnalytics | null;
+}
+
+interface ZoneDistributionPanelProps {
+  title: string;
+  emptyMessage: string;
+  data: ZoneDistributionDatum[];
+  metricControl: ReactNode;
+}
+
+interface ZoneDistributionDatum {
+  label: string;
+  detail: string;
+  percent: number;
+  color: string;
+  zoneIndex: number;
+}
+
+type ActivityMetric = "trainingLoad" | "distance" | "time";
+type DistanceMetric = "frequency" | "trainingLoad" | "time";
+
+interface MetricDropdownOption<TValue extends string> {
+  value: TValue;
+  label: string;
+}
+
+interface MetricDropdownProps<TValue extends string> {
+  label: string;
+  value: TValue;
+  options: MetricDropdownOption<TValue>[];
+  onChange: (value: TValue) => void;
+}
+
+interface DistanceBucket {
+  label: string;
+  minMeters: number;
+  maxMeters?: number;
+}
+
+interface DistanceBucketTotal extends DistanceBucket {
+  count: number;
+  trainingLoad: number;
+  duration: number;
+}
+
+const HEART_RATE_ZONE_COLORS = [
+  "#ffd0d6",
+  "#ff929f",
+  "#ff6f80",
+  "#ff5063",
+  "#d14251",
+  "#6f7487"
+];
+
+const DISTANCE_ZONE_COLORS = [
+  "#8fd4ef",
+  "#4fc3f3",
+  "#2fb2e5",
+  "#1f9cc9",
+  "#1684ad",
+  "#6f7487"
+];
+
+const DISTANCE_BUCKETS: DistanceBucket[] = [
+  { label: "[0-5km)", minMeters: 0, maxMeters: 5000 },
+  { label: "[5-10km)", minMeters: 5000, maxMeters: 10_000 },
+  { label: "[10-15km)", minMeters: 10_000, maxMeters: 15_000 },
+  { label: "[15-20km)", minMeters: 15_000, maxMeters: 20_000 },
+  { label: "[20-25km)", minMeters: 20_000, maxMeters: 25_000 },
+  { label: ">=25km", minMeters: 25_000 }
+];
+
+const DISTANCE_METRIC_LABELS: Record<DistanceMetric, string> = {
+  frequency: "Frequency",
+  trainingLoad: "Training Load",
+  time: "Time"
+};
+
+const HEART_RATE_METRIC_LABELS: Record<ActivityMetric, string> = {
+  trainingLoad: "Training Load",
+  distance: "Distance",
+  time: "Time"
+};
+
+const HEART_RATE_METRIC_OPTIONS: MetricDropdownOption<ActivityMetric>[] = [
+  { value: "trainingLoad", label: HEART_RATE_METRIC_LABELS.trainingLoad },
+  { value: "distance", label: HEART_RATE_METRIC_LABELS.distance },
+  { value: "time", label: HEART_RATE_METRIC_LABELS.time }
+];
+
+const DISTANCE_METRIC_OPTIONS: MetricDropdownOption<DistanceMetric>[] = [
+  { value: "frequency", label: DISTANCE_METRIC_LABELS.frequency },
+  { value: "trainingLoad", label: DISTANCE_METRIC_LABELS.trainingLoad },
+  { value: "time", label: DISTANCE_METRIC_LABELS.time }
+];
+
+const FOUR_WEEKS_MS = 28 * 24 * 60 * 60 * 1000;
+
+function usePrefersReducedMotion() {
+  const [reducedMotion, setReducedMotion] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReducedMotion(media.matches);
+
+    update();
+    media.addEventListener("change", update);
+
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  return reducedMotion;
+}
+
+function formatPercent(value: number): string {
+  return `${Math.round(value * 10) / 10}%`;
+}
+
+function finiteNumber(value: number | undefined): number {
+  return Number.isFinite(value) ? value ?? 0 : 0;
+}
+
+function getHeartRateAreaList(
+  analytics: TrainingHubAnalytics | null,
+  metric: ActivityMetric
+): TrainingHubZoneDistributionEntry[] {
+  if (metric === "distance") {
+    return analytics?.zoneDistributions.hrDistance ?? [];
+  }
+
+  if (metric === "time") {
+    return analytics?.zoneDistributions.hrTime ?? [];
+  }
+
+  return analytics?.zoneDistributions.hrTrainingLoad ?? [];
+}
+
+function getDistanceAreaList(
+  analytics: TrainingHubAnalytics | null,
+  metric: DistanceMetric
+): TrainingHubZoneDistributionEntry[] {
+  if (metric === "trainingLoad") {
+    return analytics?.zoneDistributions.distanceTrainingLoad ?? [];
+  }
+
+  if (metric === "time") {
+    return analytics?.zoneDistributions.distanceTime ?? [];
+  }
+
+  return analytics?.zoneDistributions.distanceFrequency ?? [];
+}
+
+function buildAreaDistributionData(
+  entries: TrainingHubZoneDistributionEntry[],
+  labels: string[],
+  colors: string[],
+  formatValue: (value: number) => string
+): ZoneDistributionDatum[] {
+  const sortedEntries = [...entries].sort(
+    (left, right) => left.index - right.index
+  );
+  const totalValue = sortedEntries.reduce(
+    (sum, entry) => sum + finiteNumber(entry.value),
+    0
+  );
+  const totalRatio = sortedEntries.reduce(
+    (sum, entry) => sum + finiteNumber(entry.ratio),
+    0
+  );
+
+  if (sortedEntries.length === 0 || (totalValue <= 0 && totalRatio <= 0)) {
+    return [];
+  }
+
+  return sortedEntries.map((entry, index) => {
+    const value = finiteNumber(entry.value);
+    const percent =
+      Number.isFinite(entry.ratio) && entry.ratio !== undefined
+        ? entry.ratio
+        : totalValue > 0
+          ? (value / totalValue) * 100
+          : 0;
+
+    return {
+      label: labels[index] ?? `Zone ${index + 1}`,
+      detail: formatValue(value),
+      percent,
+      color: colors[index % colors.length],
+      zoneIndex: index + 1
+    };
+  });
+}
+
+function buildHeartRateData(
+  zones: TrainingHubThresholdZone[],
+  activities: TrainingHubActivity[],
+  metric: ActivityMetric,
+  analytics: TrainingHubAnalytics | null
+): ZoneDistributionDatum[] {
+  const areaList = getHeartRateAreaList(analytics, metric);
+
+  if (areaList.length > 0) {
+    return buildAreaDistributionData(
+      areaList,
+      areaList.map((_entry, index) => `Zone ${index + 1}`),
+      HEART_RATE_ZONE_COLORS,
+      (value) => formatActivityMetricValue(value, metric)
+    );
+  }
+
+  const sortedZones = [...zones].sort((left, right) => left.index - right.index);
+  const totals = sortedZones.map((zone) => ({
+    zone,
+    value: 0
+  }));
+
+  if (totals.length === 0) {
+    return [];
+  }
+
+  for (const activity of activities) {
+    if (!isActivityInLastFourWeeks(activity)) {
+      continue;
+    }
+
+    if (!Number.isFinite(activity.avgHr) || !activity.avgHr) {
+      continue;
+    }
+
+    const zoneIndex = resolveHeartRateZoneIndex(sortedZones, activity.avgHr);
+    totals[zoneIndex].value += activityMetricValue(activity, metric);
+  }
+
+  const total = totals.reduce((sum, item) => sum + item.value, 0);
+
+  if (total <= 0) {
+    return [];
+  }
+
+  return totals.map((item, index) => ({
+    label: `Zone ${index + 1}`,
+    detail: formatActivityMetricValue(item.value, metric),
+    percent: (item.value / total) * 100,
+    color: HEART_RATE_ZONE_COLORS[index % HEART_RATE_ZONE_COLORS.length],
+    zoneIndex: index + 1
+  }));
+}
+
+function resolveHeartRateZoneIndex(
+  zones: TrainingHubThresholdZone[],
+  avgHr: number
+): number {
+  const firstMatchingIndex = zones.findIndex(
+    (zone) => zone.hr !== undefined && avgHr <= zone.hr
+  );
+
+  if (firstMatchingIndex >= 0) {
+    return firstMatchingIndex;
+  }
+
+  return zones.length - 1;
+}
+
+function buildDistanceBucketTotals(
+  activities: TrainingHubActivity[]
+): DistanceBucketTotal[] {
+  const buckets = DISTANCE_BUCKETS.map((bucket) => ({
+    ...bucket,
+    count: 0,
+    trainingLoad: 0,
+    duration: 0
+  }));
+
+  for (const activity of activities) {
+    if (!isActivityInLastFourWeeks(activity)) {
+      continue;
+    }
+
+    if (!Number.isFinite(activity.distance) || !activity.distance) {
+      continue;
+    }
+
+    const bucket = buckets.find(
+      (candidate) =>
+        activity.distance !== undefined &&
+        activity.distance >= candidate.minMeters &&
+        (candidate.maxMeters === undefined ||
+          activity.distance < candidate.maxMeters)
+    );
+
+    if (!bucket) {
+      continue;
+    }
+
+    bucket.count += 1;
+    bucket.trainingLoad += Number.isFinite(activity.trainingLoad)
+      ? activity.trainingLoad ?? 0
+      : 0;
+    bucket.duration += Number.isFinite(activity.duration)
+      ? activity.duration ?? 0
+      : 0;
+  }
+
+  return buckets;
+}
+
+function activityStartTimeMs(activity: TrainingHubActivity): number | undefined {
+  if (!Number.isFinite(activity.startTime) || !activity.startTime) {
+    return undefined;
+  }
+
+  return activity.startTime < 10_000_000_000
+    ? activity.startTime * 1000
+    : activity.startTime;
+}
+
+function isActivityInLastFourWeeks(activity: TrainingHubActivity): boolean {
+  const startTime = activityStartTimeMs(activity);
+
+  if (startTime === undefined) {
+    return true;
+  }
+
+  return Date.now() - startTime <= FOUR_WEEKS_MS;
+}
+
+function distanceMetricValue(
+  bucket: DistanceBucketTotal,
+  metric: DistanceMetric
+): number {
+  if (metric === "trainingLoad") {
+    return bucket.trainingLoad;
+  }
+
+  if (metric === "time") {
+    return bucket.duration;
+  }
+
+  return bucket.count;
+}
+
+function activityMetricValue(
+  activity: TrainingHubActivity,
+  metric: ActivityMetric
+): number {
+  if (metric === "distance") {
+    return Number.isFinite(activity.distance) ? activity.distance ?? 0 : 0;
+  }
+
+  if (metric === "time") {
+    return Number.isFinite(activity.duration) ? activity.duration ?? 0 : 0;
+  }
+
+  return Number.isFinite(activity.trainingLoad) ? activity.trainingLoad ?? 0 : 0;
+}
+
+function formatActivityMetricValue(
+  value: number,
+  metric: ActivityMetric
+): string {
+  if (metric === "distance") {
+    return formatDistanceMeters(value);
+  }
+
+  if (metric === "time") {
+    return formatDurationSeconds(value);
+  }
+
+  return String(Math.round(value));
+}
+
+function formatDistanceMetricValue(
+  value: number,
+  metric: DistanceMetric
+): string {
+  if (metric === "trainingLoad") {
+    return String(Math.round(value));
+  }
+
+  if (metric === "time") {
+    return formatDurationSeconds(value);
+  }
+
+  return String(Math.round(value));
+}
+
+function buildDistanceData(
+  activities: TrainingHubActivity[],
+  metric: DistanceMetric,
+  analytics: TrainingHubAnalytics | null
+): ZoneDistributionDatum[] {
+  const areaList = getDistanceAreaList(analytics, metric);
+
+  if (areaList.length > 0) {
+    return buildAreaDistributionData(
+      areaList,
+      DISTANCE_BUCKETS.map((bucket) => bucket.label),
+      DISTANCE_ZONE_COLORS,
+      (value) => formatDistanceMetricValue(value, metric)
+    );
+  }
+
+  const buckets = buildDistanceBucketTotals(activities);
+  const values = buckets.map((bucket) => distanceMetricValue(bucket, metric));
+  const total = values.reduce((sum, value) => sum + value, 0);
+
+  if (total <= 0) {
+    return [];
+  }
+
+  return buckets.map((bucket, index) => {
+    const value = values[index] ?? 0;
+
+    return {
+      label: bucket.label,
+      detail: formatDistanceMetricValue(value, metric),
+      percent: (value / total) * 100,
+      color: DISTANCE_ZONE_COLORS[index % DISTANCE_ZONE_COLORS.length],
+      zoneIndex: index + 1
+    };
+  });
+}
+
+function ZoneDistributionTooltip({
+  active,
+  payload
+}: TooltipContentProps) {
+  if (!active || !payload.length) {
+    return null;
+  }
+
+  const datum = payload[0]?.payload as ZoneDistributionDatum | undefined;
+
+  if (!datum) {
+    return null;
+  }
+
+  return (
+    <div className="training-zone-tooltip">
+      <span>{datum.label}</span>
+      <strong>{formatPercent(datum.percent)}</strong>
+      <em>{datum.detail}</em>
+    </div>
+  );
+}
+
+function ZoneDistributionPanel({
+  title,
+  emptyMessage,
+  data,
+  metricControl
+}: ZoneDistributionPanelProps) {
+  const reducedMotion = usePrefersReducedMotion();
+  const chartData = data.filter((datum) => datum.percent > 0);
+
+  return (
+    <section className="panel training-zone-panel">
+      <div className="training-zone-header">
+        <div>
+          <h2>
+            {title} <span>(4 Weeks)</span>
+          </h2>
+        </div>
+        <span className="training-zone-info" aria-hidden="true">
+          i
+        </span>
+      </div>
+      {metricControl}
+      {data.length > 0 ? (
+        <div className="training-zone-body">
+          <div className="training-zone-donut" aria-hidden="true">
+            {chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Tooltip
+                    content={(props) => <ZoneDistributionTooltip {...props} />}
+                  />
+                  <Pie
+                    data={chartData}
+                    dataKey="percent"
+                    nameKey="label"
+                    innerRadius="42%"
+                    outerRadius="82%"
+                    paddingAngle={0}
+                    stroke="transparent"
+                    isAnimationActive={!reducedMotion}
+                    animationDuration={850}
+                  >
+                    {chartData.map((datum) => (
+                      <Cell key={datum.label} fill={datum.color} />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="training-zone-empty-ring" />
+            )}
+          </div>
+
+          <div className="training-zone-list">
+            {data.map((datum) => (
+              <div className="training-zone-row" key={datum.label}>
+                <span className="training-zone-percent">
+                  {formatPercent(datum.percent)}
+                </span>
+                <span className="training-zone-name">{datum.label}</span>
+                <span className="training-zone-track" aria-hidden="true">
+                  <span
+                    className="training-zone-fill"
+                    style={{
+                      width: `${datum.percent}%`,
+                      backgroundColor: datum.color
+                    }}
+                  />
+                </span>
+                <strong className="training-zone-detail">{datum.detail}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="training-zone-body training-zone-body-empty">
+          <p className="training-empty-chart">{emptyMessage}</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MetricDropdown<TValue extends string>({
+  label,
+  value,
+  options,
+  onChange
+}: MetricDropdownProps<TValue>) {
+  const dropdownId = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [highlightedValue, setHighlightedValue] = useState<TValue>(value);
+  const selectedOption = options.find((option) => option.value === value);
+  const selectedLabel = selectedOption?.label ?? "Select metric";
+  const labelId = `${dropdownId}-label`;
+  const valueId = `${dropdownId}-value`;
+  const menuId = `${dropdownId}-menu`;
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    setHighlightedValue(value);
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+
+    function handleDocumentKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape" || event.key === "Tab") {
+        setIsOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleDocumentKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleDocumentKeyDown);
+    };
+  }, [isOpen, value]);
+
+  function moveHighlight(direction: 1 | -1) {
+    if (options.length === 0) {
+      return;
+    }
+
+    const currentIndex = options.findIndex(
+      (option) => option.value === highlightedValue
+    );
+    const fallbackIndex = options.findIndex((option) => option.value === value);
+    const startIndex =
+      currentIndex >= 0 ? currentIndex : Math.max(fallbackIndex, 0);
+    const nextIndex = (startIndex + direction + options.length) % options.length;
+    const nextOption = options[nextIndex];
+
+    if (nextOption) {
+      setHighlightedValue(nextOption.value);
+    }
+  }
+
+  function selectOption(nextValue: TValue) {
+    onChange(nextValue);
+    setIsOpen(false);
+  }
+
+  function handleTriggerKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+
+      if (!isOpen) {
+        setIsOpen(true);
+        setHighlightedValue(value);
+        return;
+      }
+
+      moveHighlight(event.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+
+    if ((event.key === "Enter" || event.key === " ") && isOpen) {
+      event.preventDefault();
+      selectOption(highlightedValue);
+    }
+  }
+
+  return (
+    <div className="training-zone-select" ref={rootRef}>
+      <span className="sr-only" id={labelId}>
+        {label}
+      </span>
+      <button
+        type="button"
+        className="training-zone-select-trigger"
+        aria-controls={menuId}
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        aria-labelledby={`${labelId} ${valueId}`}
+        onClick={() => setIsOpen((current) => !current)}
+        onKeyDown={handleTriggerKeyDown}
+      >
+        <span className="training-zone-select-value" id={valueId}>
+          {selectedLabel}
+        </span>
+        <ChevronDown
+          className="training-zone-select-icon"
+          size={17}
+          strokeWidth={2.4}
+          aria-hidden="true"
+        />
+      </button>
+
+      {isOpen ? (
+        <div
+          className="training-zone-select-menu"
+          id={menuId}
+          role="listbox"
+          aria-label={label}
+        >
+          {options.map((option) => {
+            const isSelected = option.value === value;
+            const isActive = option.value === highlightedValue;
+
+            return (
+              <button
+                type="button"
+                className={[
+                  "training-zone-select-option",
+                  isSelected ? "is-selected" : "",
+                  isActive ? "is-active" : ""
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                key={option.value}
+                role="option"
+                aria-selected={isSelected}
+                onClick={() => selectOption(option.value)}
+                onMouseEnter={() => setHighlightedValue(option.value)}
+              >
+                <span>{option.label}</span>
+                {isSelected ? (
+                  <Check size={15} strokeWidth={2.6} aria-hidden="true" />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function TrainingZoneDistributionCharts({
+  lthrZones,
+  activities,
+  analytics
+}: TrainingZoneDistributionChartsProps) {
+  const [heartRateMetric, setHeartRateMetric] =
+    useState<ActivityMetric>("trainingLoad");
+  const [distanceMetric, setDistanceMetric] =
+    useState<DistanceMetric>("frequency");
+
+  return (
+    <div className="training-chart-grid training-zone-grid">
+      <ZoneDistributionPanel
+        title="Threshold Heart Rate Zones Distribution"
+        emptyMessage="No threshold heart rate zone distribution data loaded."
+        data={buildHeartRateData(
+          lthrZones,
+          activities,
+          heartRateMetric,
+          analytics
+        )}
+        metricControl={
+          <MetricDropdown
+            label="Heart rate distribution metric"
+            value={heartRateMetric}
+            options={HEART_RATE_METRIC_OPTIONS}
+            onChange={setHeartRateMetric}
+          />
+        }
+      />
+      <ZoneDistributionPanel
+        title="Distance Zone Distribution"
+        emptyMessage="No distance zone distribution data loaded."
+        data={buildDistanceData(activities, distanceMetric, analytics)}
+        metricControl={
+          <MetricDropdown
+            label="Distance distribution metric"
+            value={distanceMetric}
+            options={DISTANCE_METRIC_OPTIONS}
+            onChange={setDistanceMetric}
+          />
+        }
+      />
+    </div>
+  );
+}

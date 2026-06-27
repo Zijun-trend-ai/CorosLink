@@ -1,13 +1,27 @@
-import type { TrainingHubRacePredictor } from "../../../electron/types";
+import type {
+  TrainingHubDashboard,
+  TrainingHubRacePredictor
+} from "../../../electron/types";
 import { formatOptionalNumber, formatPaceSecondsPerKm } from "../formatters";
 
 interface FitnessScoresPanelProps {
+  dashboard: TrainingHubDashboard | null;
   racePredictor: TrainingHubRacePredictor | null;
 }
 
 interface ScoreItem {
   label: string;
   value?: number;
+}
+
+interface MetricItem {
+  label: string;
+  value?: number;
+  format: (value?: number) => string;
+}
+
+function hasValue(value?: number): value is number {
+  return value !== undefined && Number.isFinite(value);
 }
 
 function ScoreBar({ label, value }: ScoreItem) {
@@ -30,8 +44,17 @@ function ScoreBar({ label, value }: ScoreItem) {
   );
 }
 
-export function FitnessScoresPanel({ racePredictor }: FitnessScoresPanelProps) {
-  if (!racePredictor) {
+function formatBpm(value?: number): string {
+  return hasValue(value) ? `${Math.round(value)} bpm` : "-";
+}
+
+export function FitnessScoresPanel({
+  dashboard,
+  racePredictor
+}: FitnessScoresPanelProps) {
+  const predictor = racePredictor ?? dashboard?.racePredictor ?? null;
+
+  if (!dashboard && !predictor) {
     return (
       <section className="panel training-scores-panel">
         <div className="section-heading compact">
@@ -46,13 +69,20 @@ export function FitnessScoresPanel({ racePredictor }: FitnessScoresPanelProps) {
   }
 
   const scores: ScoreItem[] = [
-    { label: "Aerobic Endurance", value: racePredictor.aerobicEnduranceScore },
+    { label: "Aerobic Endurance", value: predictor?.aerobicEnduranceScore },
     {
       label: "Lactate Threshold",
-      value: racePredictor.lactateThresholdCapacityScore
+      value: predictor?.lactateThresholdCapacityScore
     },
-    { label: "Anaerobic Endurance", value: racePredictor.anaerobicEnduranceScore },
-    { label: "Anaerobic Capacity", value: racePredictor.anaerobicCapacityScore }
+    { label: "Anaerobic Endurance", value: predictor?.anaerobicEnduranceScore },
+    { label: "Anaerobic Capacity", value: predictor?.anaerobicCapacityScore }
+  ].filter((score) => hasValue(score.value));
+
+  const metrics: MetricItem[] = [
+    { label: "LTHR", value: predictor?.lthr, format: formatBpm },
+    { label: "LT Pace", value: predictor?.ltsp, format: formatPaceSecondsPerKm },
+    { label: "Max HR", value: dashboard?.fitnessMaxHr, format: formatBpm },
+    { label: "Run Level HR", value: dashboard?.runningLevelHr, format: formatBpm }
   ];
 
   return (
@@ -60,29 +90,25 @@ export function FitnessScoresPanel({ racePredictor }: FitnessScoresPanelProps) {
       <div className="section-heading compact">
         <div>
           <p className="eyebrow">Fitness Scores</p>
-          <h2>EvoLab breakdown</h2>
+          <h2>{scores.length > 0 ? "EvoLab breakdown" : "Threshold profile"}</h2>
         </div>
       </div>
 
-      <div className="score-bar-list">
-        {scores.map((score) => (
-          <ScoreBar key={score.label} label={score.label} value={score.value} />
-        ))}
-      </div>
+      {scores.length > 0 ? (
+        <div className="score-bar-list">
+          {scores.map((score) => (
+            <ScoreBar key={score.label} label={score.label} value={score.value} />
+          ))}
+        </div>
+      ) : null}
 
       <div className="training-threshold-grid">
-        <div>
-          <span>LTHR</span>
-          <strong>
-            {racePredictor.lthr !== undefined
-              ? `${Math.round(racePredictor.lthr)} bpm`
-              : "-"}
-          </strong>
-        </div>
-        <div>
-          <span>LT Pace</span>
-          <strong>{formatPaceSecondsPerKm(racePredictor.ltsp)}</strong>
-        </div>
+        {metrics.map((metric) => (
+          <div key={metric.label}>
+            <span>{metric.label}</span>
+            <strong>{metric.format(metric.value)}</strong>
+          </div>
+        ))}
       </div>
     </section>
   );

@@ -20,9 +20,10 @@ import { PersonalRecordsPanel } from "./components/PersonalRecordsPanel";
 import { RacePredictorCards } from "./components/RacePredictorCards";
 import { RecoveryRing } from "./components/RecoveryRing";
 import { TrainingActivityTable } from "./components/TrainingActivityTable";
-import { TrainingSummaryTiles } from "./components/TrainingSummaryTiles";
 import { TrainingTrendCharts } from "./components/TrainingTrendChart";
+import { TrainingZoneDistributionCharts } from "./components/TrainingZoneDistributionCharts";
 import { UpcomingWorkoutsPanel } from "./components/UpcomingWorkoutsPanel";
+import { Vo2MaxWidget } from "./components/Vo2MaxWidget";
 import type { TrainingHubViewProps } from "./types";
 
 export function TrainingHubView({
@@ -225,22 +226,33 @@ export function TrainingHubView({
             <div className="training-intelligence-grid">
               <RecoveryRing summary={summary} />
               <div className="training-intelligence-main">
-                <FitnessTrendPanel snapshot={snapshot} />
-                <TrainingSummaryTiles summary={summary} layout="stack" />
+                <div className="training-performance-grid">
+                  <FitnessTrendPanel snapshot={snapshot} />
+                  <Vo2MaxWidget snapshot={snapshot} />
+                </div>
               </div>
             </div>
           </section>
 
           <TrainingTrendCharts points={snapshot?.trendPoints ?? []} />
+          <TrainingZoneDistributionCharts
+            lthrZones={snapshot?.dashboard?.lthrZones ?? []}
+            activities={activities}
+            analytics={snapshot?.analytics ?? null}
+          />
 
           <div className="training-secondary-grid">
-            <FitnessScoresPanel racePredictor={snapshot?.racePredictor ?? null} />
+            <FitnessScoresPanel
+              dashboard={snapshot?.dashboard ?? null}
+              racePredictor={snapshot?.racePredictor ?? null}
+            />
             <RacePredictorCards racePredictor={snapshot?.racePredictor ?? null} />
           </div>
 
-          <UpcomingWorkoutsPanel workouts={upcomingWorkouts} />
-
-          <PersonalRecordsPanel dashboard={snapshot?.dashboard ?? null} />
+          <div className="training-planning-grid">
+            <UpcomingWorkoutsPanel workouts={upcomingWorkouts} />
+            <PersonalRecordsPanel dashboard={snapshot?.dashboard ?? null} />
+          </div>
 
           <section className="panel training-activities-panel">
             <div className="section-heading">
