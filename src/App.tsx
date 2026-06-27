@@ -50,6 +50,7 @@ import type {
   TrainingHubSportType,
   TrainingHubStatus,
   WatchStatus,
+  WatchTrack,
 } from "../electron/types";
 import { buildTrainingHubSnapshot } from "./training/parsers";
 import { recentTrainingHubDateList } from "./training/formatters";
@@ -592,6 +593,11 @@ export default function App() {
       setMessage("COROS activity file URL ready.");
     } catch (caught) {
       setError(toErrorMessage(caught));
+      const status = await api.getTrainingHubStatus();
+      setTrainingHubStatus(status);
+      if (!status.authenticated) {
+        clearTrainingHubData();
+      }
     } finally {
       setBusy(null);
     }
@@ -732,7 +738,18 @@ export default function App() {
       return;
     }
 
-    const pending = downloads.filter((track) => !track.transferredAt);
+    const watchNames = new Set(
+      (watchStatus?.tracks ?? []).map((track) =>
+        localTrackFileName(track.name),
+      ),
+    );
+    const pending = downloads.filter((track) => {
+      if (track.transferredAt) {
+        return false;
+      }
+
+      return !watchNames.has(localTrackFileName(track.filePath));
+    });
     if (pending.length === 0) {
       return;
     }
@@ -755,7 +772,7 @@ export default function App() {
     }
   }
 
-  async function handleDeleteWatchTrack(track: LocalTrackLike) {
+  async function handleDeleteWatchTrack(track: WatchTrack) {
     if (!api || !window.confirm(`Delete "${track.name}" from the watch?`)) {
       return;
     }
@@ -971,6 +988,7 @@ export default function App() {
                 {activeMediaTab === "library" ? (
                   <MediaLibraryTab
                     downloads={downloads}
+                    watchStatus={watchStatus}
                     watchConnected={Boolean(watchStatus?.connected)}
                     busy={busy}
                     lastOutput={lastOutput}
@@ -978,6 +996,7 @@ export default function App() {
                     onTransferAll={handleTransferAll}
                     onDeleteDownload={handleDeleteDownload}
                     onDeleteDownloads={handleDeleteDownloads}
+                    onDeleteWatchTrack={handleDeleteWatchTrack}
                   />
                 ) : activeMediaTab === "youtube" ? (
                   <YouTubeBrowserView
@@ -1519,6 +1538,7 @@ function MediaOverviewTab({
 
 interface MediaLibraryTabProps {
   downloads: LocalTrack[];
+  watchStatus: WatchStatus | null;
   watchConnected: boolean;
   busy: string | null;
   lastOutput: string[];
@@ -1526,10 +1546,12 @@ interface MediaLibraryTabProps {
   onTransferAll: () => void;
   onDeleteDownload: (track: LocalTrack) => void;
   onDeleteDownloads: (tracks: LocalTrack[]) => void;
+  onDeleteWatchTrack: (track: WatchTrack) => void;
 }
 
 function MediaLibraryTab({
   downloads,
+  watchStatus,
   watchConnected,
   busy,
   lastOutput,
@@ -1537,7 +1559,13 @@ function MediaLibraryTab({
   onTransferAll,
   onDeleteDownload,
   onDeleteDownloads,
+  onDeleteWatchTrack,
 }: MediaLibraryTabProps) {
+  const watchTracks = watchStatus?.tracks ?? [];
+  const libraryEntries = useMemo(
+    () => buildLibraryEntries(downloads, watchTracks),
+    [downloads, watchTracks],
+  );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
@@ -1557,8 +1585,11 @@ function MediaLibraryTab({
     downloads.length > 0 && selectedIds.size === downloads.length;
   const someSelected = selectedIds.size > 0;
   const pendingTransferCount = useMemo(
-    () => downloads.filter((track) => !track.transferredAt).length,
-    [downloads],
+    () =>
+      libraryEntries.filter(
+        (entry) => entry.kind === "local" && !entry.onWatch,
+      ).length,
+    [libraryEntries],
   );
   const canTransferAll = watchConnected && pendingTransferCount > 0;
 
@@ -1602,11 +1633,11 @@ function MediaLibraryTab({
       <section className="panel panel-flex">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Local Library</p>
+            <p className="eyebrow">Library</p>
             <h2>
               {someSelected
-                ? `${selectedIds.size} selected · ${downloads.length} track(s)`
-                : `${downloads.length} track(s)`}
+                ? `${selectedIds.size} selected · ${libraryEntries.length} track(s)`
+                : `${libraryEntries.length} track(s)`}
             </h2>
           </div>
           <div className="section-heading-actions">
@@ -1647,11 +1678,12 @@ function MediaLibraryTab({
         </div>
 
         <TrackTable
-          tracks={downloads}
+          entries={libraryEntries}
           busy={busy}
           watchConnected={watchConnected}
           onTransfer={onTransfer}
           onDeleteDownload={onDeleteDownload}
+          onDeleteWatchTrack={onDeleteWatchTrack}
           selectedIds={selectedIds}
           onToggleSelect={toggleSelect}
           onToggleSelectAll={toggleSelectAll}
@@ -2576,12 +2608,26 @@ function WatchView({
   );
 }
 
+interface LibraryEntryLocal {
+  kind: "local";
+  track: LocalTrack;
+  onWatch: boolean;
+}
+
+interface LibraryEntryWatch {
+  kind: "watch";
+  track: WatchTrack;
+}
+
+type LibraryEntry = LibraryEntryLocal | LibraryEntryWatch;
+
 interface TrackTableProps {
-  tracks: LocalTrack[];
+  entries: LibraryEntry[];
   busy: string | null;
   watchConnected: boolean;
   onTransfer: (id: string) => void;
   onDeleteDownload: (track: LocalTrack) => void;
+  onDeleteWatchTrack: (track: WatchTrack) => void;
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
   onToggleSelectAll?: () => void;
@@ -2589,11 +2635,12 @@ interface TrackTableProps {
 }
 
 function TrackTable({
-  tracks,
+  entries,
   busy,
   watchConnected,
   onTransfer,
   onDeleteDownload,
+  onDeleteWatchTrack,
   selectedIds,
   onToggleSelect,
   onToggleSelectAll,
@@ -2603,8 +2650,8 @@ function TrackTable({
     selectedIds && onToggleSelect && onToggleSelectAll,
   );
 
-  if (tracks.length === 0) {
-    return <EmptyState title="No local tracks" />;
+  if (entries.length === 0) {
+    return <EmptyState title="No tracks in library" />;
   }
 
   return (
@@ -2616,7 +2663,7 @@ function TrackTable({
               <th className="select-column">
                 <input
                   type="checkbox"
-                  aria-label="Select all tracks"
+                  aria-label="Select all local tracks"
                   checked={allSelected}
                   onChange={onToggleSelectAll}
                 />
@@ -2630,7 +2677,43 @@ function TrackTable({
           </tr>
         </thead>
         <tbody>
-          {tracks.map((track) => {
+          {entries.map((entry) => {
+            if (entry.kind === "watch") {
+              const track = entry.track;
+
+              return (
+                <tr key={`watch:${track.relativePath}`}>
+                  {selectable ? <td className="select-column" /> : null}
+                  <td>
+                    <strong>{track.name}</strong>
+                    <span>{track.relativePath}</span>
+                  </td>
+                  <td>{formatBytes(track.sizeBytes)}</td>
+                  <td>{formatDate(track.modifiedAt)}</td>
+                  <td>
+                    <span className="badge ready">On watch</span>
+                  </td>
+                  <td>
+                    <div className="row-actions">
+                      <button
+                        className="icon-button danger"
+                        type="button"
+                        title="Delete from watch"
+                        disabled={
+                          !watchConnected ||
+                          busy === `delete-watch:${track.relativePath}`
+                        }
+                        onClick={() => onDeleteWatchTrack(track)}
+                      >
+                        <Trash2 size={17} aria-hidden="true" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            }
+
+            const track = entry.track;
             const selected = selectable ? selectedIds?.has(track.id) : false;
 
             return (
@@ -2653,9 +2736,9 @@ function TrackTable({
                 <td>{formatDate(track.createdAt)}</td>
                 <td>
                   <span
-                    className={track.transferredAt ? "badge ready" : "badge"}
+                    className={entry.onWatch ? "badge ready" : "badge"}
                   >
-                    {track.transferredAt ? "Transferred" : "Local"}
+                    {entry.onWatch ? "On watch" : "Local only"}
                   </span>
                 </td>
                 <td>
@@ -2666,6 +2749,7 @@ function TrackTable({
                       title="Transfer to watch"
                       disabled={
                         !watchConnected ||
+                        entry.onWatch ||
                         busy === `transfer:${track.id}` ||
                         busy === "transfer-all"
                       }
@@ -2966,6 +3050,79 @@ function injectYouTubeDownloadButton(webview: WebviewElement): Promise<void> {
     document.documentElement.appendChild(style);
   };
 
+  const previewStyleId = "coroslink-youtube-disable-preview-style";
+  const previewSelectors =
+    "#inline-preview-player, ytd-video-preview, .ytd-video-preview, .ytp-inline-preview, #preview ytd-video-preview, ytd-thumbnail-overlay-hover-text-renderer";
+  const previewHoverSelectors =
+    "#content.ytd-rich-item-renderer, #contents.ytd-item-section-renderer, #dismissible.ytd-compact-video-renderer, ytd-thumbnail, a#thumbnail";
+
+  const removePreviewPlayers = () => {
+    document.querySelectorAll(previewSelectors).forEach((node) => {
+      node.remove();
+    });
+
+    document
+      .querySelectorAll(
+        "#inline-preview-player video, ytd-video-preview video, .ytd-video-preview video, .ytp-inline-preview video"
+      )
+      .forEach((video) => {
+        video.pause();
+        video.removeAttribute("src");
+        try {
+          video.load();
+        } catch (err) {}
+      });
+  };
+
+  const ensurePreviewDisabled = () => {
+    if (!document.getElementById(previewStyleId)) {
+      const style = document.createElement("style");
+      style.id = previewStyleId;
+      style.textContent = previewSelectors + " { display: none !important; visibility: hidden !important; pointer-events: none !important; }";
+      document.documentElement.appendChild(style);
+    }
+
+    removePreviewPlayers();
+  };
+
+  const blockPreviewHover = (event) => {
+    const path =
+      typeof event.composedPath === "function" ? event.composedPath() : [];
+    if (
+      path.some(
+        (elem) =>
+          elem &&
+          elem.matches &&
+          elem.matches(previewHoverSelectors)
+      )
+    ) {
+      event.stopImmediatePropagation();
+    }
+  };
+
+  const ensurePreviewGuards = () => {
+    if (window.__corosLinkYoutubePreviewDisabled) {
+      ensurePreviewDisabled();
+      return;
+    }
+
+    window.__corosLinkYoutubePreviewDisabled = true;
+    window.addEventListener("mouseenter", blockPreviewHover, true);
+    window.addEventListener("mouseover", blockPreviewHover, true);
+    window.addEventListener("pointerenter", blockPreviewHover, true);
+
+    new MutationObserver(() => {
+      ensurePreviewDisabled();
+    }).observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["src"]
+    });
+
+    ensurePreviewDisabled();
+  };
+
   const readVideo = (renderer) => {
     const anchor = renderer.querySelector(
       "a#thumbnail[href*='watch?v='], a#video-title[href*='watch?v='], a[href*='/watch?v=']"
@@ -3062,6 +3219,7 @@ function injectYouTubeDownloadButton(webview: WebviewElement): Promise<void> {
   let scheduled = false;
   const run = () => {
     ensureStyle();
+    ensurePreviewGuards();
     document.querySelectorAll(rowSelector).forEach(ensureRowButton);
   };
   const upsert = () => {
@@ -3154,6 +3312,62 @@ function trackAvatarColor(title: string): string {
   }
 
   return TRACK_AVATAR_COLORS[hash];
+}
+
+function localTrackFileName(filePath: string): string {
+  const parts = filePath.split(/[/\\]/);
+  return parts[parts.length - 1]?.toLowerCase() ?? "";
+}
+
+function isLocalTrackOnWatch(
+  track: LocalTrack,
+  watchTracks: WatchTrack[],
+): boolean {
+  if (track.transferredAt) {
+    return true;
+  }
+
+  const localName = localTrackFileName(track.filePath);
+  if (!localName) {
+    return false;
+  }
+
+  return watchTracks.some(
+    (watchTrack) => localTrackFileName(watchTrack.name) === localName,
+  );
+}
+
+function watchOnlyTracks(
+  downloads: LocalTrack[],
+  watchTracks: WatchTrack[],
+): WatchTrack[] {
+  const localNames = new Set(
+    downloads.map((track) => localTrackFileName(track.filePath)).filter(Boolean),
+  );
+
+  return watchTracks.filter(
+    (track) => !localNames.has(localTrackFileName(track.name)),
+  );
+}
+
+function buildLibraryEntries(
+  downloads: LocalTrack[],
+  watchTracks: WatchTrack[],
+): LibraryEntry[] {
+  const localEntries: LibraryEntryLocal[] = downloads.map((track) => ({
+    kind: "local",
+    track,
+    onWatch: isLocalTrackOnWatch(track, watchTracks),
+  }));
+  const watchEntries: LibraryEntryWatch[] = watchOnlyTracks(
+    downloads,
+    watchTracks,
+  ).map((track) => ({
+    kind: "watch",
+    track,
+  }));
+
+  return [...localEntries, ...watchEntries];
 }
 
 function trackInitial(title: string): string {

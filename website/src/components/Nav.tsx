@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
-import icon from "../../../build/icon.png";
+import Image from "next/image";
+import { AnimatePresence, motion } from "motion/react";
 import { useActiveSection } from "../hooks/useActiveSection";
 
 const GITHUB_URL = "https://github.com/JunAkerBuilds/CorosLink";
 
 const SECTION_IDS = ["features", "how-it-works", "download"];
 const LINKS = [
-  { id: "features", label: "Features" },
-  { id: "how-it-works", label: "How it works" },
+  { id: "features", label: "Command" },
+  { id: "how-it-works", label: "Workflow" },
   { id: "download", label: "Download" },
 ];
 
@@ -39,32 +40,47 @@ export function Nav() {
   }, [menuOpen]);
 
   return (
-    <nav className={`nav ${scrolled ? "is-scrolled" : ""}`}>
+    <motion.nav
+      className={`nav ${scrolled ? "is-scrolled" : ""}`}
+      initial={{ opacity: 0, y: -18 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.55, ease: "easeOut" }}
+    >
       <div className="container nav-inner">
-        <a href="#" className="nav-brand" onClick={() => setMenuOpen(false)}>
-          <img src={icon} alt="CorosLink" />
+        <motion.a
+          href="#"
+          className="nav-brand"
+          onClick={() => setMenuOpen(false)}
+          whileHover={{ y: -1 }}
+          whileTap={{ scale: 0.98 }}
+        >
+          <Image src="/icon.png" alt="CorosLink" width={36} height={36} priority />
           CorosLink
-        </a>
+        </motion.a>
 
         <div className="nav-links">
           {LINKS.map((link) => (
-            <a
+            <motion.a
               key={link.id}
               href={`#${link.id}`}
               className={active === link.id ? "is-active" : ""}
+              whileHover={{ y: -1 }}
+              whileTap={{ scale: 0.98 }}
             >
               {link.label}
-            </a>
+            </motion.a>
           ))}
-          <a
+          <motion.a
             href={GITHUB_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="nav-github"
+            whileHover={{ y: -1 }}
+            whileTap={{ scale: 0.98 }}
           >
             <GitHubIcon />
             GitHub
-          </a>
+          </motion.a>
         </div>
 
         <button
@@ -81,33 +97,46 @@ export function Nav() {
         </button>
       </div>
 
-      <div
-        id="mobile-menu"
-        className={`nav-mobile ${menuOpen ? "is-open" : ""}`}
-        hidden={!menuOpen}
-      >
-        {LINKS.map((link) => (
-          <a
-            key={link.id}
-            href={`#${link.id}`}
-            className={active === link.id ? "is-active" : ""}
-            onClick={() => setMenuOpen(false)}
+      <AnimatePresence>
+        {menuOpen && (
+          <motion.div
+            id="mobile-menu"
+            className="nav-mobile is-open"
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
           >
-            {link.label}
-          </a>
-        ))}
-        <a
-          href={GITHUB_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="nav-github"
-          onClick={() => setMenuOpen(false)}
-        >
-          <GitHubIcon />
-          GitHub
-        </a>
-      </div>
-    </nav>
+            {LINKS.map((link, index) => (
+              <motion.a
+                key={link.id}
+                href={`#${link.id}`}
+                className={active === link.id ? "is-active" : ""}
+                onClick={() => setMenuOpen(false)}
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: index * 0.04, duration: 0.2, ease: "easeOut" }}
+              >
+                {link.label}
+              </motion.a>
+            ))}
+            <motion.a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="nav-github"
+              onClick={() => setMenuOpen(false)}
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: LINKS.length * 0.04, duration: 0.2, ease: "easeOut" }}
+            >
+              <GitHubIcon />
+              GitHub
+            </motion.a>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.nav>
   );
 }
 

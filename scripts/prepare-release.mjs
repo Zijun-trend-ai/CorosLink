@@ -2,7 +2,7 @@ import { syncReleaseVersion } from "./sync-release-version.mjs";
 
 const tag = process.argv[2];
 if (!tag) {
-  console.error("Usage: npm run release:prepare -- v0.1.3");
+  console.error("Usage: npm run release:prepare -- v0.1.4");
   process.exit(1);
 }
 

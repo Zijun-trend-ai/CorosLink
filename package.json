@@ -1,6 +1,6 @@
 {
   "name": "coroslink",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "Unofficial COROS Pace Pro companion — media, watch sync, and training analytics.",
   "author": "CorosLink Contributors",
@@ -24,7 +24,7 @@
     "release:prepare": "node scripts/prepare-release.mjs",
     "release:check-version": "node scripts/sync-release-version.mjs --check",
     "website:dev": "npm run dev --prefix website",
-    "website:build": "cross-env GITHUB_PAGES=true npm run build --prefix website"
+    "website:build": "npm run build --prefix website"
   },
   "build": {
     "appId": "app.coroslink",

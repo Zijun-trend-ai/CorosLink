@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>Live site:</strong> <a href="https://junakerbuilds.github.io/CorosLink/">junakerbuilds.github.io/CorosLink</a>
+  <strong>Live site:</strong> <a href="https://coroslink.vercel.app/">coroslink.vercel.app</a>
 </p>
 
 <p align="center">
@@ -277,13 +277,13 @@ Because `better-sqlite3` is native, build Windows installers on Windows or in CI
 1. Prepare the version in `package.json` and `package-lock.json` so they match the tag you are about to create:
 
 ```sh
-npm run release:prepare -- v0.1.3
-git commit -am "chore: release v0.1.3"
-git tag v0.1.3
-git push origin main v0.1.3
+npm run release:prepare -- v0.1.4
+git commit -am "chore: release v0.1.4"
+git tag v0.1.4
+git push origin main v0.1.4
 ```
 
-2. That triggers the [Release installers](.github/workflows/release.yml) workflow. CI syncs the tag into `package.json` before building, then verifies the versions match, so installer names like `CorosLink-0.1.3-arm64.dmg` always follow the git tag.
+2. That triggers the [Release installers](.github/workflows/release.yml) workflow. CI syncs the tag into `package.json` before building, then verifies the versions match, so installer names like `CorosLink-0.1.4-arm64.dmg` always follow the git tag.
 
 You can also run the workflow manually from **Actions → Release installers** (it uses the current `package.json` version when no tag is pushed).
 

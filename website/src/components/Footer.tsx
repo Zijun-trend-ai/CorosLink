@@ -1,4 +1,4 @@
-import icon from "../../../build/icon.png";
+import Image from "next/image";
 
 const GITHUB_URL = "https://github.com/JunAkerBuilds/CorosLink";
 
@@ -7,7 +7,7 @@ export function Footer() {
     <footer className="footer">
       <div className="container footer-inner">
         <div className="footer-brand">
-          <img src={icon} alt="" />
+          <Image src="/icon.png" alt="" width={28} height={28} />
           CorosLink
         </div>
         <div className="footer-links">

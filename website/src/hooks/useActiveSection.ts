@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 
 /**
  * Returns the id of the section currently nearest the top of the viewport,
- * for nav scroll-spy highlighting. Mirrors the IntersectionObserver style used
- * by useInView.
+ * for nav scroll-spy highlighting.
  */
 export function useActiveSection(ids: string[]) {
   const [active, setActive] = useState<string | null>(null);

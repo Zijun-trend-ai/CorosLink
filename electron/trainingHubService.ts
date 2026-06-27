@@ -339,15 +339,15 @@ export async function getTrainingHubActivityFileUrl(
   sportType: number,
   fileType: TrainingHubActivityFileType = 4
 ): Promise<string> {
-  const data = await trainingHubFetch<TrainingHubFileUrlData>(
-    "/activity/fit/url/get",
+  const data = await trainingHubRequest<TrainingHubFileUrlData>(
+    "/activity/detail/download",
     {
       method: "POST",
-      body: JSON.stringify({
-        activityId,
+      params: {
+        labelId: activityId,
         sportType,
         fileType
-      })
+      }
     }
   );
 
@@ -756,7 +756,8 @@ async function trainingHubRequest<T>(
   try {
     return await executeTrainingHubRequest<T>(auth, path, options);
   } catch (error) {
-    if (!shouldRetryTrainingHubRequest(error)) {
+    const retryReason = getTrainingHubRetryReason(error);
+    if (!retryReason) {
       throw error;
     }
 
@@ -765,8 +766,12 @@ async function trainingHubRequest<T>(
       auth.baseUrl
     );
     if (resolvedBaseUrl === auth.baseUrl) {
-      clearTrainingHubAuth();
-      throw new Error("COROS session expired. Log in again.");
+      if (retryReason === "token") {
+        clearTrainingHubAuth();
+        throw new Error("COROS session expired. Log in again.");
+      }
+
+      throw error;
     }
 
     setSetting(SETTINGS.baseUrl, resolvedBaseUrl);
@@ -777,9 +782,13 @@ async function trainingHubRequest<T>(
         path,
         options
       );
-    } catch {
-      clearTrainingHubAuth();
-      throw new Error("COROS session expired. Log in again.");
+    } catch (retryError) {
+      if (retryReason === "token") {
+        clearTrainingHubAuth();
+        throw new Error("COROS session expired. Log in again.");
+      }
+
+      throw retryError;
     }
   }
 }
@@ -873,16 +882,21 @@ async function probeTrainingHubBaseUrl(
   return false;
 }
 
-function shouldRetryTrainingHubRequest(error: unknown): boolean {
+function getTrainingHubRetryReason(
+  error: unknown
+): "token" | "not-found" | null {
   if (error instanceof InvalidTrainingHubTokenError) {
-    return true;
+    return "token";
   }
 
-  if (!(error instanceof Error)) {
-    return false;
+  if (
+    error instanceof Error &&
+    error.message.includes("COROS API request failed: 404")
+  ) {
+    return "not-found";
   }
 
-  return error.message.includes("COROS API request failed: 404");
+  return null;
 }
 
 class InvalidTrainingHubTokenError extends Error {
