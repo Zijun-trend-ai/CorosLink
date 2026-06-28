@@ -97,7 +97,6 @@ jobs:
           name: coroslink-linux
           path: |
             release/*.AppImage
-            release/*.AppImage.blockmap
             release/latest-linux.yml
 
   windows:

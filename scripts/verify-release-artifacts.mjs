@@ -26,7 +26,8 @@ const PLATFORM_CHECKS = {
     label: "Linux",
     metadataFile: "latest-linux.yml",
     requiredPatterns: [/\.AppImage$/i],
-    blockmapPatterns: [/\.AppImage\.blockmap$/i]
+    // AppImage blockmaps are embedded in the file, not written as *.AppImage.blockmap.
+    blockmapPatterns: []
   }
 };
 

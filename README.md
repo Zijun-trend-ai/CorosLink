@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>Live site:</strong> <a href="https://coroslink.vercel.app/">coroslink.vercel.app</a>
+  <strong>Live site:</strong> <a href="https://coros-link.vercel.app/">coros-link.vercel.app</a>
 </p>
 
 <p align="center">
@@ -308,7 +308,7 @@ git tag v0.1.5
 git push origin main v0.1.5
 ```
 
-2. That triggers the [Release installers](.github/workflows/release.yml) workflow. CI syncs the tag into `package.json` before building, then verifies the versions match, so installer names like `CorosLink-0.1.5-arm64.dmg` always follow the git tag. The workflow also uploads `latest-mac.yml`, `latest-linux.yml`, and `latest.yml` plus blockmaps so packaged apps can auto-update via `electron-updater`. Each platform build runs `scripts/verify-release-artifacts.mjs` and fails if update metadata is missing.
+2. That triggers the [Release installers](.github/workflows/release.yml) workflow. CI syncs the tag into `package.json` before building, then verifies the versions match, so installer names like `CorosLink-0.1.5-arm64.dmg` always follow the git tag. The workflow also uploads `latest-mac.yml`, `latest-linux.yml`, and `latest.yml` plus macOS/Windows blockmaps so packaged apps can auto-update via `electron-updater` (Linux AppImage embeds its blockmap in the file). Each platform build runs `scripts/verify-release-artifacts.mjs` and fails if update metadata is missing.
 
 You can also run the workflow manually from **Actions → Release installers** (it uses the current `package.json` version when no tag is pushed).
 

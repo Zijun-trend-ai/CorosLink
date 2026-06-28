@@ -1879,6 +1879,11 @@ img {
   height: 32px;
 }
 
+.download-platform-icon--linux svg {
+  width: 30px;
+  height: 30px;
+}
+
 .download-option-copy {
   min-width: 0;
 }
