@@ -18,6 +18,7 @@ const ORIGINAL_COROS_WATCH_PATH = process.env.COROS_WATCH_PATH;
 interface WatchConnectionSmokeFixture {
   volumeName: string;
   createMusicFolder: boolean;
+  createMapFolder?: boolean;
   trackNames: string[];
   totalBytes?: number;
 }
@@ -34,12 +35,14 @@ const WATCH_CONNECTION_SMOKE_FIXTURES: Record<
   "pace-pro": {
     volumeName: "COROS PACE PRO",
     createMusicFolder: true,
+    createMapFolder: true,
     trackNames: ["Existing Track.mp3", "Workout Mix.mp3"],
     totalBytes: fallbackBytesForModel("pace-pro")
   },
   "pace-4": {
     volumeName: "COROS PACE 4",
     createMusicFolder: true,
+    createMapFolder: true,
     trackNames: ["Warmup.mp3"],
     totalBytes: fallbackBytesForModel("pace-4")
   },
@@ -52,6 +55,7 @@ const WATCH_CONNECTION_SMOKE_FIXTURES: Record<
   nomad: {
     volumeName: "COROS NOMAD",
     createMusicFolder: true,
+    createMapFolder: true,
     trackNames: ["Trail Mix.mp3"],
     totalBytes: fallbackBytesForModel("nomad")
   },
@@ -64,6 +68,7 @@ const WATCH_CONNECTION_SMOKE_FIXTURES: Record<
   installer: {
     volumeName: "COROS Desktop-0.1.0-arm64",
     createMusicFolder: false,
+    createMapFolder: false,
     trackNames: []
   }
 };
@@ -87,9 +92,11 @@ interface StorageStats {
 export async function getWatchStatus(): Promise<WatchStatus> {
   try {
     const candidates = await findDriveCandidates();
-    const selected = candidates.find((candidate) => candidate.musicPath);
+    const selected = candidates.find(
+      (candidate) => candidate.musicPath || candidate.mapPath
+    );
 
-    if (!selected?.musicPath) {
+    if (!selected) {
       return {
         connected: false,
         checkedAt: new Date().toISOString(),
@@ -99,7 +106,8 @@ export async function getWatchStatus(): Promise<WatchStatus> {
     }
 
     const musicPath = selected.musicPath;
-    const tracks = listWatchTracks(musicPath);
+    const mapPath = selected.mapPath;
+    const tracks = musicPath ? listWatchTracks(musicPath) : [];
     const model = resolveWatchModel(selected.name, selected.totalBytes);
 
     return {
@@ -109,6 +117,9 @@ export async function getWatchStatus(): Promise<WatchStatus> {
       model,
       rootPath: selected.rootPath,
       musicPath,
+      mapPath,
+      mapSizeBytes: selected.mapSizeBytes,
+      mapFileCount: selected.mapFileCount,
       totalBytes: selected.totalBytes,
       freeBytes: selected.freeBytes,
       usedBytes: selected.usedBytes,
@@ -168,6 +179,12 @@ export async function setWatchConnectionSmokeOption(
       await fs.promises.writeFile(path.join(musicPath, "notes.txt"), "ignore");
     }
 
+    if (fixture.createMapFolder) {
+      const mapPath = path.join(watchRoot, "map");
+      await fs.promises.mkdir(mapPath, { recursive: true });
+      await fs.promises.writeFile(path.join(mapPath, "base.map"), "map");
+    }
+
     activeSmokeTempRoot = tempRoot;
     activeSmokeWatchRoot = watchRoot;
     activeSmokeTotalBytes = fixture.totalBytes;
@@ -207,14 +224,16 @@ export async function transferFileToWatch(filePath: string): Promise<WatchTrack>
   }
 
   const status = await getWatchStatus();
-  if (!status.connected || !status.musicPath) {
+  if (!status.connected || !status.rootPath) {
     throw new Error("No COROS watch is connected.");
   }
 
-  fs.mkdirSync(status.musicPath, { recursive: true });
+  const musicPath = status.musicPath ?? path.join(status.rootPath, "Music");
+
+  fs.mkdirSync(musicPath, { recursive: true });
 
   const destination = nextAvailablePath(
-    status.musicPath,
+    musicPath,
     sanitizeFileName(path.basename(filePath))
   );
   fs.copyFileSync(filePath, destination);
@@ -222,7 +241,7 @@ export async function transferFileToWatch(filePath: string): Promise<WatchTrack>
   const stats = fs.statSync(destination);
   return {
     name: path.basename(destination),
-    relativePath: path.relative(status.musicPath, destination),
+    relativePath: path.relative(musicPath, destination),
     absolutePath: destination,
     sizeBytes: stats.size,
     modifiedAt: stats.mtime.toISOString()
@@ -239,19 +258,29 @@ async function findDriveCandidates(): Promise<DriveCandidate[]> {
     }
 
     const musicPath = path.join(volume.rootPath, "Music");
+    const mapPath = path.join(volume.rootPath, "map");
     const hasMusicFolder = isDirectory(musicPath);
+    const hasMapFolder = isDirectory(mapPath);
 
-    if (!hasMusicFolder) {
+    if (!hasMusicFolder && !hasMapFolder) {
       continue;
     }
 
     const storage = getStorageStats(volume.rootPath, volume.name);
+    const mapStats = hasMapFolder ? getDirectoryStats(mapPath) : {};
     candidates.push({
       name: volume.name,
       rootPath: volume.rootPath,
-      musicPath,
+      musicPath: hasMusicFolder ? musicPath : undefined,
+      mapPath: hasMapFolder ? mapPath : undefined,
+      ...mapStats,
       ...storage,
-      reason: "Music folder found"
+      reason:
+        hasMusicFolder && hasMapFolder
+          ? "Music and map folders found"
+          : hasMusicFolder
+            ? "Music folder found"
+            : "map folder found"
     });
   }
 
@@ -410,6 +439,42 @@ function getStorageStats(rootPath: string, volumeName: string): StorageStats {
     return {
       totalBytes: fallbackBytesForModel(model)
     };
+  }
+}
+
+function getDirectoryStats(directoryPath: string): {
+  mapSizeBytes?: number;
+  mapFileCount?: number;
+} {
+  let sizeBytes = 0;
+  let fileCount = 0;
+
+  function walk(currentPath: string): void {
+    for (const entry of fs.readdirSync(currentPath, { withFileTypes: true })) {
+      const absolutePath = path.join(currentPath, entry.name);
+      if (entry.isDirectory()) {
+        walk(absolutePath);
+        continue;
+      }
+
+      if (!entry.isFile()) {
+        continue;
+      }
+
+      const stats = fs.statSync(absolutePath);
+      sizeBytes += stats.size;
+      fileCount += 1;
+    }
+  }
+
+  try {
+    walk(directoryPath);
+    return {
+      mapSizeBytes: sizeBytes,
+      mapFileCount: fileCount
+    };
+  } catch {
+    return {};
   }
 }
 

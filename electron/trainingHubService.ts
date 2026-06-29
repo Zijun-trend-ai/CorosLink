@@ -126,6 +126,8 @@ interface RawSportType {
 
 interface RawDailyMetric {
   happenDay?: string | number;
+  date?: string | number;
+  day?: string | number;
   trainingLoad?: number;
   rhr?: number;
   avgSleepHrv?: number;
@@ -136,7 +138,15 @@ interface RawDailyMetric {
   staminaLevel?: number;
   vo2max?: number;
   distance?: number;
+  totalDistance?: number;
+  dis?: number;
+  sportDis?: number;
+  totalDis?: number;
   duration?: number;
+  totalTime?: number;
+  workoutTime?: number;
+  sportTime?: number;
+  time?: number;
 }
 
 interface RawRaceScore {
@@ -773,9 +783,57 @@ function mapTrainingHubActivity(
   };
 }
 
+function pickDailyMetricNumber(
+  raw: Record<string, unknown>,
+  keys: string[]
+): number | undefined {
+  for (const key of keys) {
+    const value = toOptionalNumber(raw[key]);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function normalizeDailyDistanceMeters(value?: number): number | undefined {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+
+  // COROS detail payloads store distance at 0.01 m precision (see activity detail parsing).
+  if (value >= 100_000) {
+    return value / 100;
+  }
+
+  return value;
+}
+
+function normalizeDailyDurationSeconds(value?: number): number | undefined {
+  const normalized = normalizePersonalRecordDuration(value);
+  return normalized === undefined ? undefined : Math.round(normalized);
+}
+
 function parseDailyMetric(raw: RawDailyMetric): TrainingHubDailyMetric {
+  const record = raw as Record<string, unknown>;
+  const distanceRaw = pickDailyMetricNumber(record, [
+    "distance",
+    "totalDistance",
+    "dis",
+    "sportDis",
+    "totalDis"
+  ]);
+  const durationRaw = pickDailyMetricNumber(record, [
+    "duration",
+    "totalTime",
+    "workoutTime",
+    "sportTime",
+    "time"
+  ]);
+
   return {
-    happenDay: String(raw.happenDay ?? ""),
+    happenDay: String(raw.happenDay ?? raw.date ?? raw.day ?? ""),
     trainingLoad: toOptionalNumber(raw.trainingLoad),
     rhr: toOptionalNumber(raw.rhr),
     avgSleepHrv: toOptionalNumber(raw.avgSleepHrv),
@@ -785,12 +843,12 @@ function parseDailyMetric(raw: RawDailyMetric): TrainingHubDailyMetric {
     trainingLoadRatio: toOptionalNumber(raw.trainingLoadRatio),
     staminaLevel: toOptionalNumber(raw.staminaLevel),
     vo2max: toOptionalNumber(raw.vo2max),
-    distance: toOptionalNumber(raw.distance),
-    duration: toOptionalNumber(raw.duration)
+    distance: normalizeDailyDistanceMeters(distanceRaw),
+    duration: normalizeDailyDurationSeconds(durationRaw)
   };
 }
 
-function parseDailyMetrics(raw: Record<string, unknown>): TrainingHubDailyMetrics {
+export function parseDailyMetrics(raw: Record<string, unknown>): TrainingHubDailyMetrics {
   const dayList = extractDayList(raw).map((item) =>
     parseDailyMetric(item as RawDailyMetric)
   );

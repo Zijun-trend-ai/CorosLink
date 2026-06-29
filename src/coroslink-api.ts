@@ -1,8 +1,19 @@
 import type {
   BinaryStatus,
+  CachedCorosMapPackage,
+  CorosMapDownloadJob,
+  CorosMapInstallResult,
+  CorosMapInstallProgress,
+  CorosMapLocalSelection,
+  CorosMapManifest,
+  CorosMapPackage,
   DownloadAudioResult,
   DownloadJob,
+  GenerateRouteRequest,
+  GeneratedRoute,
   LocalTrack,
+  RouteBuilderConfig,
+  RouteGeocodeResult,
   SpotifyConfig,
   SpotifyPlaylist,
   SpotifyPlaylistTrack,
@@ -105,9 +116,43 @@ export interface CorosLinkApi {
   getDailyMetrics: (dateList: string[]) => Promise<TrainingHubDailyMetrics>;
   getSportTypeMap: () => Promise<TrainingHubSportType[]>;
   getUpcomingWorkouts: (days?: number) => Promise<TrainingHubUpcomingWorkout[]>;
+  getCorosMapManifest: () => Promise<CorosMapManifest>;
+  openCorosMapDownload: (downloadUrl: string) => Promise<void>;
+  downloadCorosMapPackage: (
+    pkg: CorosMapPackage
+  ) => Promise<CorosMapDownloadJob[]>;
+  listCorosMapDownloadJobs: () => Promise<CorosMapDownloadJob[]>;
+  cancelCorosMapDownload: (id: string) => Promise<CorosMapDownloadJob[]>;
+  clearCorosMapDownloadJob: (id: string) => Promise<CorosMapDownloadJob[]>;
+  onCorosMapDownloadJobsUpdate: (
+    callback: (jobs: CorosMapDownloadJob[]) => void
+  ) => () => void;
+  listCachedCorosMaps: () => Promise<CachedCorosMapPackage[]>;
+  getCorosMapInstallProgress: () => Promise<CorosMapInstallProgress | null>;
+  onCorosMapInstallProgressUpdate: (
+    callback: (progress: CorosMapInstallProgress | null) => void
+  ) => () => void;
+  installCachedCorosMap: (packageId: string) => Promise<CorosMapInstallResult>;
+  deleteCachedCorosMap: (
+    packageId: string
+  ) => Promise<CachedCorosMapPackage[]>;
+  chooseCorosMapFolder: () => Promise<CorosMapLocalSelection | undefined>;
+  installCorosMapFolder: (
+    sourcePath: string
+  ) => Promise<CorosMapInstallResult>;
+  getRouteBuilderConfig: () => Promise<RouteBuilderConfig>;
+  saveRouteBuilderConfig: (
+    config: RouteBuilderConfig
+  ) => Promise<RouteBuilderConfig>;
+  listGeneratedRoutes: () => Promise<GeneratedRoute[]>;
+  openLocationServicesSettings: () => Promise<void>;
+  getApproximateRouteLocation: () => Promise<RouteGeocodeResult>;
+  geocodeRouteLocation: (query: string) => Promise<RouteGeocodeResult>;
+  generateRoute: (request: GenerateRouteRequest) => Promise<GeneratedRoute>;
+  exportGeneratedRoute: (id: string) => Promise<string | null>;
   getAppUpdateStatus: () => Promise<AppUpdateSnapshot>;
   checkForAppUpdates: () => Promise<AppUpdateSnapshot>;
-  quitAndInstallUpdate: () => Promise<void>;
+  quitAndInstallUpdate: () => Promise<{ installMethod: "restart" | "manual" }>;
   onAppUpdateStatus: (
     callback: (snapshot: AppUpdateSnapshot) => void
   ) => () => void;

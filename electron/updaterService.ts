@@ -1,4 +1,5 @@
-import { app, BrowserWindow } from "electron";
+import { execFileSync } from "node:child_process";
+import { app, BrowserWindow, shell } from "electron";
 import { autoUpdater } from "electron-updater";
 import type { AppUpdateSnapshot } from "./types";
 
@@ -12,6 +13,63 @@ let snapshot: AppUpdateSnapshot = {
 
 function isUpdaterEnabled(): boolean {
   return app.isPackaged && !process.env.VITE_DEV_SERVER_URL;
+}
+
+function isMacAdHocSigned(): boolean {
+  if (process.platform !== "darwin") {
+    return false;
+  }
+
+  try {
+    const output = execFileSync(
+      "codesign",
+      ["-dv", process.execPath],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+    );
+    const combined = output.toString();
+
+    return (
+      combined.includes("Signature=adhoc") ||
+      combined.includes("code has no resources but signature indicates they must be present")
+    );
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? `${error.message}\n${"stderr" in error ? String(error.stderr ?? "") : ""}`
+        : String(error);
+
+    return message.includes("Signature=adhoc");
+  }
+}
+
+function getManualInstallUrl(version: string): string {
+  const arch = process.arch === "arm64" ? "arm64" : "x64";
+
+  if (process.platform === "darwin") {
+    return `https://github.com/JunAkerBuilds/CorosLink/releases/download/v${version}/CorosLink-${version}-${arch}.dmg`;
+  }
+
+  if (process.platform === "win32") {
+    return `https://github.com/JunAkerBuilds/CorosLink/releases/download/v${version}/CorosLink.Setup.${version}.exe`;
+  }
+
+  return `https://github.com/JunAkerBuilds/CorosLink/releases/download/v${version}/CorosLink-${version}.AppImage`;
+}
+
+function resolveInstallDetails(
+  version: string
+): Pick<AppUpdateSnapshot, "installMethod" | "manualInstallUrl"> {
+  if (process.platform === "darwin" && isMacAdHocSigned()) {
+    return {
+      installMethod: "manual",
+      manualInstallUrl: getManualInstallUrl(version)
+    };
+  }
+
+  return {
+    installMethod: "restart",
+    manualInstallUrl: undefined
+  };
 }
 
 function publishSnapshot(): void {
@@ -71,7 +129,8 @@ function registerAutoUpdaterListeners(): void {
       status: "downloaded",
       availableVersion: info.version,
       downloadPercent: 100,
-      error: undefined
+      error: undefined,
+      ...resolveInstallDetails(info.version)
     });
   });
 
@@ -125,12 +184,32 @@ export async function checkForAppUpdates(): Promise<AppUpdateSnapshot> {
   return getAppUpdateSnapshot();
 }
 
-export function quitAndInstallUpdate(): void {
-  if (!isUpdaterEnabled() || snapshot.status !== "downloaded") {
-    return;
+export async function quitAndInstallUpdate(): Promise<{
+  installMethod: "restart" | "manual";
+}> {
+  if (!isUpdaterEnabled()) {
+    throw new Error("Updates are only available in the installed app.");
   }
 
-  autoUpdater.quitAndInstall();
+  if (snapshot.status !== "downloaded" || !snapshot.availableVersion) {
+    throw new Error(
+      `Update is not ready to install yet (status: ${snapshot.status}).`
+    );
+  }
+
+  if (snapshot.installMethod === "manual") {
+    const url =
+      snapshot.manualInstallUrl ??
+      getManualInstallUrl(snapshot.availableVersion);
+    await shell.openExternal(url);
+    return { installMethod: "manual" };
+  }
+
+  setImmediate(() => {
+    autoUpdater.quitAndInstall(false, true);
+  });
+
+  return { installMethod: "restart" };
 }
 
 function formatReleaseNotes(

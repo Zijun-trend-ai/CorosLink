@@ -1,0 +1,49 @@
+{
+  "mapData": [
+    {
+      "region": "north-america",
+      "parent": "global",
+      "type": "landscape",
+      "title": "map.north-america",
+      "data": {
+        "size": 6942015791,
+        "link": "/regionMap/v5/north-america_landscape_5.0.3.zip"
+      }
+    },
+    {
+      "region": "north-america",
+      "parent": "global",
+      "type": "topo",
+      "title": "map.north-america",
+      "data": {
+        "size": 11688135596,
+        "link": "/regionMap/v5/north-america_topo_5.0.3.zip"
+      }
+    },
+    {
+      "region": "north-america1",
+      "parent": "north-america",
+      "type": "landscape",
+      "title": "map.north-america1",
+      "data": {
+        "size": 3841222201,
+        "link": "/regionMap/v5/north-america1_landscape_5.0.3.zip"
+      }
+    },
+    {
+      "region": "north-america1",
+      "parent": "north-america",
+      "type": "topo",
+      "title": "map.north-america1",
+      "data": {
+        "size": 2749645964,
+        "link": "/regionMap/v5/north-america1_topo_5.0.3.zip"
+      }
+    }
+  ],
+  "updatedAt": "2025-09-16 22:31:26",
+  "v": "5",
+  "host": "https://map-oss-us.coros.com/",
+  "totalSize": 25120999552,
+  "bundleVersion": "5.0.3"
+}

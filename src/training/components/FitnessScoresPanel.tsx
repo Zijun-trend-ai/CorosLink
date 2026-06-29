@@ -3,7 +3,11 @@ import type {
   TrainingHubDashboard,
   TrainingHubRacePredictor
 } from "../../../electron/types";
-import { formatOptionalNumber, formatPaceSecondsPerKm } from "../formatters";
+import {
+  buildRunningFitnessPaceLabels,
+  formatOptionalNumber,
+  formatPaceSecondsPerKm
+} from "../formatters";
 
 interface FitnessScoresPanelProps {
   dashboard: TrainingHubDashboard | null;
@@ -13,6 +17,7 @@ interface FitnessScoresPanelProps {
 interface ScoreItem {
   label: string;
   value?: number;
+  paceLabel?: string;
 }
 
 interface MetricItem {
@@ -25,14 +30,17 @@ function hasValue(value?: number): value is number {
   return value !== undefined && Number.isFinite(value);
 }
 
-function ScoreBar({ label, value }: ScoreItem) {
+function ScoreBar({ label, value, paceLabel }: ScoreItem) {
   const percent =
     value !== undefined ? Math.max(0, Math.min(100, value)) : undefined;
 
   return (
     <div className="score-bar">
       <div className="score-bar-header">
-        <span>{label}</span>
+        <div className="score-bar-label-group">
+          <span>{label}</span>
+          {paceLabel ? <span className="score-bar-pace">{paceLabel}</span> : null}
+        </div>
         <strong>{formatOptionalNumber(value)}</strong>
       </div>
       <div className="score-bar-track">
@@ -70,14 +78,28 @@ export function FitnessScoresPanel({
     );
   }
 
+  const paceLabels = buildRunningFitnessPaceLabels(dashboard?.ltspZones ?? []);
   const scores: ScoreItem[] = [
-    { label: "Aerobic Endurance", value: predictor?.aerobicEnduranceScore },
     {
-      label: "Lactate Threshold",
-      value: predictor?.lactateThresholdCapacityScore
+      label: "Endurance",
+      value: predictor?.aerobicEnduranceScore,
+      paceLabel: paceLabels.Endurance
     },
-    { label: "Anaerobic Endurance", value: predictor?.anaerobicEnduranceScore },
-    { label: "Anaerobic Capacity", value: predictor?.anaerobicCapacityScore }
+    {
+      label: "Threshold",
+      value: predictor?.lactateThresholdCapacityScore,
+      paceLabel: paceLabels.Threshold
+    },
+    {
+      label: "Speed",
+      value: predictor?.anaerobicEnduranceScore,
+      paceLabel: paceLabels.Speed
+    },
+    {
+      label: "Sprint",
+      value: predictor?.anaerobicCapacityScore,
+      paceLabel: paceLabels.Sprint
+    }
   ].filter((score) => hasValue(score.value));
 
   const metrics: MetricItem[] = [
@@ -92,7 +114,7 @@ export function FitnessScoresPanel({
       <header className="training-scores-header">
         <div className="training-scores-heading">
           <p className="eyebrow">Fitness Scores</p>
-          <h2>{scores.length > 0 ? "EvoLab breakdown" : "Threshold profile"}</h2>
+          <h2>{scores.length > 0 ? "Running fitness" : "Threshold profile"}</h2>
         </div>
         <BarChart3 size={22} aria-hidden="true" />
       </header>

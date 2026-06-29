@@ -1,9 +1,20 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   BinaryStatus,
+  CachedCorosMapPackage,
+  CorosMapDownloadJob,
+  CorosMapInstallResult,
+  CorosMapInstallProgress,
+  CorosMapLocalSelection,
+  CorosMapManifest,
+  CorosMapPackage,
   DownloadAudioResult,
   DownloadJob,
+  GenerateRouteRequest,
+  GeneratedRoute,
   LocalTrack,
+  RouteBuilderConfig,
+  RouteGeocodeResult,
   SpotifyConfig,
   SpotifyPlaylist,
   SpotifyPlaylistTrack,
@@ -170,6 +181,80 @@ const api = {
     days?: number
   ): Promise<TrainingHubUpcomingWorkout[]> =>
     ipcRenderer.invoke("trainingHub:getUpcomingWorkouts", days),
+  getCorosMapManifest: (): Promise<CorosMapManifest> =>
+    ipcRenderer.invoke("maps:getCorosManifest"),
+  openCorosMapDownload: (downloadUrl: string): Promise<void> =>
+    ipcRenderer.invoke("maps:openCorosDownload", downloadUrl),
+  downloadCorosMapPackage: (
+    pkg: CorosMapPackage
+  ): Promise<CorosMapDownloadJob[]> =>
+    ipcRenderer.invoke("maps:downloadCorosPackage", pkg),
+  listCorosMapDownloadJobs: (): Promise<CorosMapDownloadJob[]> =>
+    ipcRenderer.invoke("maps:listCorosMapDownloadJobs"),
+  cancelCorosMapDownload: (id: string): Promise<CorosMapDownloadJob[]> =>
+    ipcRenderer.invoke("maps:cancelCorosMapDownload", id),
+  clearCorosMapDownloadJob: (id: string): Promise<CorosMapDownloadJob[]> =>
+    ipcRenderer.invoke("maps:clearCorosMapDownloadJob", id),
+  onCorosMapDownloadJobsUpdate: (
+    callback: (jobs: CorosMapDownloadJob[]) => void
+  ): (() => void) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      jobs: CorosMapDownloadJob[]
+    ) => {
+      callback(jobs);
+    };
+    ipcRenderer.on("maps:downloadJobsUpdate", listener);
+    return () =>
+      ipcRenderer.removeListener("maps:downloadJobsUpdate", listener);
+  },
+  listCachedCorosMaps: (): Promise<CachedCorosMapPackage[]> =>
+    ipcRenderer.invoke("maps:listCachedCorosMaps"),
+  getCorosMapInstallProgress: (): Promise<CorosMapInstallProgress | null> =>
+    ipcRenderer.invoke("maps:getCorosMapInstallProgress"),
+  onCorosMapInstallProgressUpdate: (
+    callback: (progress: CorosMapInstallProgress | null) => void
+  ): (() => void) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      progress: CorosMapInstallProgress | null
+    ) => {
+      callback(progress);
+    };
+    ipcRenderer.on("maps:installProgressUpdate", listener);
+    return () =>
+      ipcRenderer.removeListener("maps:installProgressUpdate", listener);
+  },
+  installCachedCorosMap: (packageId: string): Promise<CorosMapInstallResult> =>
+    ipcRenderer.invoke("maps:installCachedCorosMap", packageId),
+  deleteCachedCorosMap: (
+    packageId: string
+  ): Promise<CachedCorosMapPackage[]> =>
+    ipcRenderer.invoke("maps:deleteCachedCorosMap", packageId),
+  chooseCorosMapFolder: (): Promise<CorosMapLocalSelection | undefined> =>
+    ipcRenderer.invoke("maps:chooseCorosMapFolder"),
+  installCorosMapFolder: (
+    sourcePath: string
+  ): Promise<CorosMapInstallResult> =>
+    ipcRenderer.invoke("maps:installCorosMapFolder", sourcePath),
+  getRouteBuilderConfig: (): Promise<RouteBuilderConfig> =>
+    ipcRenderer.invoke("maps:getRouteBuilderConfig"),
+  saveRouteBuilderConfig: (
+    config: RouteBuilderConfig
+  ): Promise<RouteBuilderConfig> =>
+    ipcRenderer.invoke("maps:saveRouteBuilderConfig", config),
+  listGeneratedRoutes: (): Promise<GeneratedRoute[]> =>
+    ipcRenderer.invoke("maps:listGeneratedRoutes"),
+  openLocationServicesSettings: (): Promise<void> =>
+    ipcRenderer.invoke("maps:openLocationServicesSettings"),
+  getApproximateRouteLocation: (): Promise<RouteGeocodeResult> =>
+    ipcRenderer.invoke("maps:getApproximateRouteLocation"),
+  geocodeRouteLocation: (query: string): Promise<RouteGeocodeResult> =>
+    ipcRenderer.invoke("maps:geocodeRouteLocation", query),
+  generateRoute: (request: GenerateRouteRequest): Promise<GeneratedRoute> =>
+    ipcRenderer.invoke("maps:generateRoute", request),
+  exportGeneratedRoute: (id: string): Promise<string | null> =>
+    ipcRenderer.invoke("maps:exportGeneratedRoute", id),
   getAppUpdateStatus: (): Promise<AppUpdateSnapshot> =>
     ipcRenderer.invoke("app:getUpdateStatus"),
   checkForAppUpdates: (): Promise<AppUpdateSnapshot> =>

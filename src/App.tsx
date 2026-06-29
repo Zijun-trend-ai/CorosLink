@@ -14,6 +14,7 @@ import {
   LogIn,
   LogOut,
   Loader2,
+  Map as MapIcon,
   Music,
   RefreshCw,
   Search,
@@ -62,6 +63,7 @@ import { TrainingHubView } from "./training/TrainingHubView";
 import type { TrainingHubSnapshot } from "./training/types";
 import type { CorosLinkApi } from "./coroslink-api";
 import { AppUpdateControls } from "./components/AppUpdateControls";
+import { MapsView } from "./maps/MapsView";
 import {
   LibrarySyncLayout,
   LocalLibraryPanel,
@@ -73,8 +75,9 @@ import {
 } from "./media/libraryUtils";
 import { useTimeOfDayGreeting } from "./hooks/useTimeOfDayGreeting";
 import { getWatchPresentation } from "./watchModels";
+import appLogo from "../build/icon.png";
 
-type View = "overview" | "media" | "training";
+type View = "overview" | "media" | "training" | "maps";
 type MediaTab = "library" | "youtube" | "spotify";
 
 const YOUTUBE_HOME_URL = "https://www.youtube.com/";
@@ -531,7 +534,18 @@ export default function App() {
   }
 
   function handleInstallUpdate() {
-    void api?.quitAndInstallUpdate();
+    void api
+      ?.quitAndInstallUpdate()
+      .then((result) => {
+        if (result?.installMethod === "manual") {
+          setMessage(
+            "Opened the GitHub download page. Install the new build over CorosLink in Applications."
+          );
+        }
+      })
+      .catch((caught) => {
+        setError(toErrorMessage(caught));
+      });
   }
 
   async function loadSpotifyPlaylist(playlistId: string) {
@@ -1095,11 +1109,10 @@ export default function App() {
         <div className="app-header-start">
           <div className="brand">
             <div className="brand-mark">
-              <Watch size={22} aria-hidden="true" />
+              <img src={appLogo} alt="" aria-hidden="true" />
             </div>
             <div>
               <strong>CorosLink</strong>
-              <span>Media & watch</span>
             </div>
           </div>
 
@@ -1123,6 +1136,17 @@ export default function App() {
             >
               <Music size={16} aria-hidden="true" />
               Media
+            </button>
+            <button
+              type="button"
+              className={
+                activeView === "maps" ? "primary-tab active" : "primary-tab"
+              }
+              onClick={() => setActiveView("maps")}
+            >
+              <MapIcon size={16} aria-hidden="true" />
+              Maps
+              <span className="primary-tab-beta">Beta</span>
             </button>
             <button
               type="button"
@@ -1267,6 +1291,14 @@ export default function App() {
                   />
                 )}
               </MediaView>
+            ) : activeView === "maps" ? (
+              <MapsView
+                api={api}
+                watchStatus={watchStatus}
+                onWatchStatusChange={setWatchStatus}
+                onMessage={setMessage}
+                onError={setError}
+              />
             ) : (
               <TrainingHubView
                 status={trainingHubStatus}
@@ -3568,6 +3600,10 @@ function viewTitle(view: View): string {
 
   if (view === "media") {
     return "Media";
+  }
+
+  if (view === "maps") {
+    return "Maps";
   }
 
   return "Training Hub";

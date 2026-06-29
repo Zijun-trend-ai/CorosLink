@@ -17,6 +17,7 @@
     "build:renderer": "tsc -p tsconfig.json --noEmit && vite build",
     "smoke:watch": "npm run build:electron && node scripts/smoke-watch-service.mjs",
     "test:watch-models": "npm run build:electron && node scripts/test-watch-models.mjs",
+    "test:maps": "npm run build:electron && node scripts/test-maps.mjs",
     "test:greetings": "node --experimental-strip-types scripts/test-greetings.mjs",
     "start": "npm run build && electron .",
     "icons:generate": "node scripts/generate-icons.mjs",
@@ -94,7 +95,8 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "recharts": "^3.9.0",
-    "spotify-web-api-node": "^5.0.2"
+    "spotify-web-api-node": "^5.0.2",
+    "unzipper": "^0.12.5"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

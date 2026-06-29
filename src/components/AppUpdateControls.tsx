@@ -23,15 +23,21 @@ export function AppUpdateControls({
   }
 
   if (snapshot.status === "downloaded" && snapshot.availableVersion) {
+    const manual = snapshot.installMethod === "manual";
+
     return (
       <button
         className="update-chip ready"
         type="button"
         onClick={onInstall}
-        title={`Install CorosLink ${snapshot.availableVersion}`}
+        title={
+          manual
+            ? `Download CorosLink ${snapshot.availableVersion} from GitHub (required for this macOS build)`
+            : `Install CorosLink ${snapshot.availableVersion}`
+        }
       >
         <Sparkles size={15} aria-hidden="true" />
-        Restart to update
+        {manual ? `Download ${snapshot.availableVersion}` : "Restart to update"}
       </button>
     );
   }

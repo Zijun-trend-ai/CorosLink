@@ -119,7 +119,7 @@ Log in with your COROS account to view training data, fitness scores, and race p
 - **FIT file export** via signed download URL
 
 <p align="center">
-  <img src="docs/screenshots/training-hub.png" alt="Training Hub" width="900" />
+  <img src="docs/screenshots/training-hub-2.png" alt="Training Hub" width="900" />
 </p>
 
 ---
@@ -151,11 +151,11 @@ flowchart LR
 
 Get the latest installer from **[GitHub Releases](https://github.com/JunAkerBuilds/CorosLink/releases)**:
 
-| Platform | File |
-| -------- | ---- |
-| macOS (Apple Silicon) | `CorosLink-*-arm64.dmg` |
-| Windows | `CorosLink Setup *.exe` |
-| Linux (x64) | `CorosLink-*-x86_64.AppImage` |
+| Platform              | File                          |
+| --------------------- | ----------------------------- |
+| macOS (Apple Silicon) | `CorosLink-*-arm64.dmg`       |
+| Windows               | `CorosLink Setup *.exe`       |
+| Linux (x64)           | `CorosLink-*-x86_64.AppImage` |
 
 #### macOS: “app is damaged” or won’t open
 

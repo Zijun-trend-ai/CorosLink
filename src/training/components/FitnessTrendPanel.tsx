@@ -1,125 +1,155 @@
-import { useEffect, useState } from "react";
-import {
-  formatHappenDayLabel,
-  formatOptionalNumber,
-  recentTrainingHubDateList
-} from "../formatters";
+import { useEffect, useMemo, useState } from "react";
+import type { TrainingHubActivity } from "../../../electron/types";
+import { formatHappenDayLabel } from "../formatters";
 import { mergeTrainingDayLists } from "../parsers";
 import type { TrainingHubSnapshot } from "../types";
+import {
+  buildWeeklyActivitySeries,
+  buildWeeklyActivityYAxisTicks,
+  enrichDayListWithActivityTotals,
+  formatWeeklyActivityAxisTick,
+  getWeeklyActivityMetricLabel,
+  getWeeklyActivityYAxisUnitLabel,
+  WEEKLY_ACTIVITY_METRICS,
+  type WeeklyActivityMetric
+} from "../weeklyActivity";
 
 interface FitnessTrendPanelProps {
   snapshot: TrainingHubSnapshot | null;
+  activities?: TrainingHubActivity[];
 }
 
-function formatCompactHappenDay(value: string): string {
-  if (!/^\d{8}$/.test(value)) {
-    return value;
-  }
-
-  const year = Number(value.slice(0, 4));
-  const month = Number(value.slice(4, 6)) - 1;
-  const day = Number(value.slice(6, 8));
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric"
-  }).format(new Date(year, month, day));
-}
-
-export function FitnessTrendPanel({ snapshot }: FitnessTrendPanelProps) {
-  const [isReady, setIsReady] = useState(false);
-  const days = mergeTrainingDayLists(
-    snapshot?.dailyMetrics ?? null,
-    snapshot?.analytics ?? null
+export function FitnessTrendPanel({
+  snapshot,
+  activities = []
+}: FitnessTrendPanelProps) {
+  const [barsVisible, setBarsVisible] = useState(false);
+  const [metric, setMetric] = useState<WeeklyActivityMetric>("distance");
+  const dayList = useMemo(
+    () =>
+      enrichDayListWithActivityTotals(
+        mergeTrainingDayLists(
+          snapshot?.dailyMetrics ?? null,
+          snapshot?.analytics ?? null
+        ),
+        activities
+      ),
+    [snapshot, activities]
   );
-  const dayMap = new Map(days.map((day) => [day.happenDay, day]));
-  const dateKeys = recentTrainingHubDateList(7).reverse();
-  const hasFitnessScore = dateKeys.some((key) =>
-    Number.isFinite(dayMap.get(key)?.staminaLevel)
+  const series = useMemo(
+    () => buildWeeklyActivitySeries(dayList, metric),
+    [dayList, metric]
   );
-  const metricLabel = hasFitnessScore ? "Fitness" : "Training load";
-  const bars = dateKeys.map((key) => {
-    const day = dayMap.get(key);
-    const value = hasFitnessScore ? day?.staminaLevel : day?.trainingLoad;
-
-    return {
-      key,
-      day,
-      value: Number.isFinite(value) ? value : undefined,
-      label: formatCompactHappenDay(key),
-      fullLabel: formatHappenDayLabel(key)
-    };
-  });
-  const hasTrendData = bars.some((bar) => Number.isFinite(bar.value));
-  const maxValue =
-    bars.reduce((max, bar) => Math.max(max, bar.value ?? 0), 0) || 1;
+  const maxValue = series.yMax || 1;
+  const yAxisTicks = useMemo(
+    () => buildWeeklyActivityYAxisTicks(maxValue),
+    [maxValue]
+  );
+  const yAxisUnitLabel = getWeeklyActivityYAxisUnitLabel(metric, series.yAxisUnit);
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => setIsReady(true));
+    setBarsVisible(false);
+    const frame = requestAnimationFrame(() => setBarsVisible(true));
     return () => cancelAnimationFrame(frame);
-  }, [bars.length]);
+  }, [metric, series.hasData]);
 
   return (
     <section className="panel training-fitness-panel">
       <div className="training-fitness-header">
-        <p className="eyebrow">Fitness Trend</p>
-        <span className="training-range-pill">
-          {hasTrendData ? "Last 7 days" : "No data"}
-        </span>
+        <p className="eyebrow">Weekly Activity</p>
+        <label className="training-metric-select-wrap">
+          <span className="sr-only">Activity metric</span>
+          <select
+            className="training-range-pill training-metric-select"
+            value={metric}
+            onChange={(event) =>
+              setMetric(event.target.value as WeeklyActivityMetric)
+            }
+          >
+            {WEEKLY_ACTIVITY_METRICS.map((option) => (
+              <option key={option} value={option}>
+                {getWeeklyActivityMetricLabel(option)}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
-      {hasTrendData ? (
+      {series.hasData ? (
         <div
-          className="training-fitness-bars"
-          role="list"
-          aria-label={`${metricLabel} trend over the last 7 days`}
+          className="training-fitness-chart"
+          role="img"
+          aria-label={`Weekly ${series.metricLabel.toLowerCase()} chart. Week total ${series.weeklyTotal}. Y-axis in ${yAxisUnitLabel || series.metricLabel}.`}
         >
-          {bars.map((bar, index) => {
-            const valueLabel =
-              bar.value !== undefined ? formatOptionalNumber(bar.value) : "No data";
-            const loadLabel =
-              bar.day?.trainingLoad !== undefined
-                ? formatOptionalNumber(bar.day.trainingLoad)
-                : "No data";
-            const fatigueLabel =
-              bar.day?.tiredRateNew !== undefined
-                ? formatOptionalNumber(bar.day.tiredRateNew)
-                : "No data";
-
-            return (
-              <span
-                key={bar.key}
-                className={`training-fitness-day${
-                  bar.value === undefined ? " is-empty" : ""
-                }`}
-                role="listitem"
-                tabIndex={0}
-                aria-label={`${bar.fullLabel}: ${metricLabel} ${valueLabel}, load ${loadLabel}, fatigue ${fatigueLabel}`}
-              >
-                <span
-                  className="training-fitness-bar"
-                  style={{
-                    height:
-                      isReady && bar.value !== undefined
-                        ? `${Math.max(10, (bar.value / maxValue) * 100)}%`
-                        : "0%",
-                    transitionDelay: `${index * 60}ms`
-                  }}
-                />
-                <span className="training-fitness-date">{bar.label}</span>
-                <span className="training-fitness-tooltip" role="tooltip">
-                  <strong>{bar.fullLabel}</strong>
-                  <span>
-                    {metricLabel}: {valueLabel}
-                  </span>
-                  <span>Load: {loadLabel}</span>
-                  <span>Fatigue: {fatigueLabel}</span>
+          <div className="training-fitness-y-axis" aria-hidden="true">
+            {yAxisUnitLabel ? (
+              <span className="training-fitness-y-unit">{yAxisUnitLabel}</span>
+            ) : null}
+            <div className="training-fitness-y-ticks">
+              {[...yAxisTicks].reverse().map((tick) => (
+                <span key={tick} className="training-fitness-y-tick">
+                  {formatWeeklyActivityAxisTick(tick, metric, series.yAxisUnit)}
                 </span>
-              </span>
-            );
-          })}
+              ))}
+            </div>
+          </div>
+
+          <div className="training-fitness-plot">
+            <div className="training-fitness-grid-lines" aria-hidden="true">
+              {yAxisTicks.map((tick) => (
+                <span
+                  key={tick}
+                  className="training-fitness-grid-line"
+                  style={{ bottom: `${(tick / maxValue) * 100}%` }}
+                />
+              ))}
+            </div>
+
+            <div
+              className="training-fitness-bars"
+              role="list"
+              aria-label="Weekly activity for the current calendar week"
+            >
+              {series.days.map((bar, index) => {
+                const hasValue = bar.value > 0;
+                const fullLabel = formatHappenDayLabel(bar.happenDay);
+
+                return (
+                  <span
+                    key={bar.happenDay}
+                    className={`training-fitness-day${
+                      !hasValue ? " is-empty" : ""
+                    }${bar.isToday ? " is-today" : ""}`}
+                    role="listitem"
+                    tabIndex={0}
+                    aria-label={`${fullLabel}: ${bar.displayValue}`}
+                  >
+                    <span
+                      className="training-fitness-bar"
+                      style={{
+                        height:
+                          barsVisible && hasValue
+                            ? `${Math.max(10, (bar.value / maxValue) * 100)}%`
+                            : undefined,
+                        transitionDelay: `${index * 60}ms`
+                      }}
+                    />
+                    <span className="training-fitness-date">{bar.weekdayLabel}</span>
+                    <span className="training-fitness-tooltip" role="tooltip">
+                      <strong>{fullLabel}</strong>
+                      <span>{series.metricLabel}: {bar.displayValue}</span>
+                      {series.weeklyTotal !== "—" ? (
+                        <span>Week total: {series.weeklyTotal}</span>
+                      ) : null}
+                    </span>
+                  </span>
+                );
+              })}
+            </div>
+          </div>
         </div>
       ) : (
-        <p className="training-empty-state">No fitness trend data yet.</p>
+        <p className="training-empty-state">No weekly activity data yet.</p>
       )}
     </section>
   );

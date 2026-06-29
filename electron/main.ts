@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, ipcMain, session, shell } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import { deleteDownload, getDownloadById, initializeDatabase, listDownloads, markDownloadTransferred, clearDownloadTransferredByFileName } from "./database";
@@ -36,8 +36,35 @@ import {
   loginTrainingHub,
   logoutTrainingHub
 } from "./trainingHubService";
+import {
+  cancelCorosMapDownload,
+  chooseCorosMapFolder,
+  clearCorosMapDownloadJob,
+  deleteCachedCorosMap,
+  downloadCorosMapPackage,
+  exportGeneratedRoute,
+  generateRoute,
+  geocodeRouteLocation,
+  getApproximateRouteLocation,
+  getCorosMapInstallProgress,
+  getCorosMapManifest,
+  getRouteBuilderConfig,
+  installCachedCorosMap,
+  installCorosMapFolder,
+  listCachedCorosMaps,
+  listCorosMapDownloadJobs,
+  listGeneratedRoutes,
+  openCorosMapDownload,
+  openLocationServicesSettings,
+  saveRouteBuilderConfig,
+  setCorosMapDownloadListener,
+  setCorosMapInstallProgressListener
+} from "./mapService";
 import type {
+  CorosMapPackage,
   DownloadJob,
+  GenerateRouteRequest,
+  RouteBuilderConfig,
   SpotifyConfig,
   TrainingHubActivity,
   TrainingHubActivityFileType,
@@ -99,6 +126,18 @@ function applyAppIcon(): void {
   }
 }
 
+function configureAppPermissions(): void {
+  session.defaultSession.setPermissionRequestHandler(
+    (_webContents, permission, callback) => {
+      callback(permission === "geolocation");
+    }
+  );
+
+  session.defaultSession.setPermissionCheckHandler(
+    (_webContents, permission) => permission === "geolocation"
+  );
+}
+
 function createWindow(): void {
   const iconPath = getAppIconPath();
 
@@ -135,6 +174,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  configureAppPermissions();
   configureYouTubeBrowserSession();
   registerYouTubeBrowserHandlers();
   initializeDatabase(app.getPath("userData"));
@@ -142,6 +182,16 @@ app.whenReady().then(() => {
   setJobListener((jobs) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("youtube:jobsUpdate", jobs);
+    }
+  });
+  setCorosMapDownloadListener((jobs) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("maps:downloadJobsUpdate", jobs);
+    }
+  });
+  setCorosMapInstallProgressListener((progress) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("maps:installProgressUpdate", progress);
     }
   });
   createWindow();
@@ -333,11 +383,80 @@ function registerIpcHandlers(): void {
     getUpcomingWorkouts(days)
   );
 
+  ipcMain.handle("maps:getCorosManifest", () => getCorosMapManifest());
+
+  ipcMain.handle("maps:openCorosDownload", (_event, downloadUrl: string) =>
+    openCorosMapDownload(downloadUrl)
+  );
+
+  ipcMain.handle("maps:downloadCorosPackage", (_event, pkg: CorosMapPackage) =>
+    downloadCorosMapPackage(pkg)
+  );
+
+  ipcMain.handle("maps:listCorosMapDownloadJobs", () =>
+    listCorosMapDownloadJobs()
+  );
+
+  ipcMain.handle("maps:cancelCorosMapDownload", (_event, id: string) =>
+    cancelCorosMapDownload(id)
+  );
+
+  ipcMain.handle("maps:clearCorosMapDownloadJob", (_event, id: string) =>
+    clearCorosMapDownloadJob(id)
+  );
+
+  ipcMain.handle("maps:listCachedCorosMaps", () => listCachedCorosMaps());
+
+  ipcMain.handle("maps:getCorosMapInstallProgress", () =>
+    getCorosMapInstallProgress()
+  );
+
+  ipcMain.handle("maps:installCachedCorosMap", (_event, packageId: string) =>
+    installCachedCorosMap(packageId)
+  );
+
+  ipcMain.handle("maps:deleteCachedCorosMap", (_event, packageId: string) =>
+    deleteCachedCorosMap(packageId)
+  );
+
+  ipcMain.handle("maps:chooseCorosMapFolder", () => chooseCorosMapFolder());
+
+  ipcMain.handle("maps:installCorosMapFolder", (_event, sourcePath: string) =>
+    installCorosMapFolder(sourcePath)
+  );
+
+  ipcMain.handle("maps:getRouteBuilderConfig", () => getRouteBuilderConfig());
+
+  ipcMain.handle(
+    "maps:saveRouteBuilderConfig",
+    (_event, config: RouteBuilderConfig) => saveRouteBuilderConfig(config)
+  );
+
+  ipcMain.handle("maps:listGeneratedRoutes", () => listGeneratedRoutes());
+
+  ipcMain.handle("maps:openLocationServicesSettings", () =>
+    openLocationServicesSettings()
+  );
+
+  ipcMain.handle("maps:getApproximateRouteLocation", () =>
+    getApproximateRouteLocation()
+  );
+
+  ipcMain.handle("maps:geocodeRouteLocation", (_event, query: string) =>
+    geocodeRouteLocation(query)
+  );
+
+  ipcMain.handle("maps:generateRoute", (_event, request: GenerateRouteRequest) =>
+    generateRoute(request)
+  );
+
+  ipcMain.handle("maps:exportGeneratedRoute", (_event, id: string) =>
+    exportGeneratedRoute(id)
+  );
+
   ipcMain.handle("app:getUpdateStatus", () => getAppUpdateSnapshot());
 
   ipcMain.handle("app:checkForUpdates", () => checkForAppUpdates());
 
-  ipcMain.handle("app:quitAndInstallUpdate", () => {
-    quitAndInstallUpdate();
-  });
+  ipcMain.handle("app:quitAndInstallUpdate", () => quitAndInstallUpdate());
 }

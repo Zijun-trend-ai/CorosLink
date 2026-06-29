@@ -229,7 +229,7 @@ export function TrainingHubView({
               <RecoveryRing summary={summary} />
               <div className="training-intelligence-main">
                 <div className="training-performance-grid">
-                  <FitnessTrendPanel snapshot={snapshot} />
+                  <FitnessTrendPanel snapshot={snapshot} activities={activities} />
                   <Vo2MaxWidget snapshot={snapshot} />
                 </div>
               </div>
@@ -237,7 +237,7 @@ export function TrainingHubView({
           </section>
 
           <div className="training-heatmap-wrap">
-            <TrainingHeatmapPanel snapshot={snapshot} />
+            <TrainingHeatmapPanel snapshot={snapshot} activities={activities} />
           </div>
           <TrainingTrendCharts points={snapshot?.trendPoints ?? []} />
           <TrainingZoneDistributionCharts

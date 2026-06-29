@@ -18,6 +18,9 @@ export interface DriveCandidate {
   name: string;
   rootPath: string;
   musicPath?: string;
+  mapPath?: string;
+  mapSizeBytes?: number;
+  mapFileCount?: number;
   totalBytes?: number;
   freeBytes?: number;
   usedBytes?: number;
@@ -51,6 +54,9 @@ export interface WatchStatus {
   model?: WatchModelId;
   rootPath?: string;
   musicPath?: string;
+  mapPath?: string;
+  mapSizeBytes?: number;
+  mapFileCount?: number;
   totalBytes?: number;
   freeBytes?: number;
   usedBytes?: number;
@@ -139,6 +145,148 @@ export interface YouTubeHistoryEntry {
 export interface TransferResult {
   copiedTrack: WatchTrack;
   watch: WatchStatus;
+}
+
+export type CorosMapType = "landscape" | "topo";
+
+export interface CorosMapPackage {
+  id: string;
+  region: string;
+  parent: string;
+  title: string;
+  type: CorosMapType;
+  sizeBytes: number;
+  link: string;
+  downloadUrl: string;
+  version: string;
+  bundleVersion?: string;
+  updatedAt?: string;
+}
+
+export interface CorosMapManifest {
+  version: string;
+  bundleVersion?: string;
+  updatedAt?: string;
+  totalSizeBytes?: number;
+  packages: CorosMapPackage[];
+}
+
+export type CorosMapDownloadStatus =
+  | "queued"
+  | "downloading"
+  | "cached"
+  | "failed"
+  | "cancelled";
+
+export interface CorosMapDownloadJob {
+  id: string;
+  packageId: string;
+  title: string;
+  region: string;
+  type: CorosMapType;
+  downloadUrl: string;
+  sizeBytes: number;
+  status: CorosMapDownloadStatus;
+  progress: number;
+  receivedBytes: number;
+  filePath?: string;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CachedCorosMapPackage {
+  packageId: string;
+  title: string;
+  region: string;
+  parent: string;
+  type: CorosMapType;
+  sizeBytes: number;
+  downloadUrl: string;
+  filePath: string;
+  extractedPath?: string;
+  downloadedAt: string;
+}
+
+export interface CorosMapLocalSelection {
+  sourcePath: string;
+  mapPath: string;
+  sizeBytes: number;
+  fileCount: number;
+}
+
+export interface CorosMapInstallResult extends CorosMapLocalSelection {
+  installedPath: string;
+  watch: WatchStatus;
+}
+
+export type CorosMapInstallPhase =
+  | "preparing"
+  | "copying"
+  | "completed"
+  | "failed";
+
+export interface CorosMapInstallProgress {
+  active: boolean;
+  phase: CorosMapInstallPhase;
+  label: string;
+  sourcePath?: string;
+  installedPath?: string;
+  copiedBytes: number;
+  totalBytes: number;
+  copiedFiles: number;
+  totalFiles: number;
+  progress: number;
+  error?: string;
+  updatedAt: string;
+}
+
+export type RouteMode = "loop" | "point-to-point";
+export type RouteSurfacePreference = "road" | "trail";
+export type RouteElevationPreference = "any" | "flatter" | "hilly";
+
+export interface RouteBuilderConfig {
+  openRouteServiceApiKey: string;
+}
+
+export interface RouteGeocodeResult {
+  label: string;
+  lat: number;
+  lon: number;
+}
+
+export interface GenerateRouteRequest {
+  startLocation: string;
+  destinationLocation?: string;
+  distanceKm: number;
+  mode: RouteMode;
+  surfacePreference: RouteSurfacePreference;
+  avoidHighways: boolean;
+  elevationPreference: RouteElevationPreference;
+}
+
+export interface GeneratedRoute {
+  id: string;
+  name: string;
+  createdAt: string;
+  startLocation: string;
+  destinationLocation?: string;
+  distanceMeters: number;
+  durationSeconds?: number;
+  ascentMeters?: number;
+  descentMeters?: number;
+  mode: RouteMode;
+  surfacePreference: RouteSurfacePreference;
+  avoidHighways: boolean;
+  elevationPreference: RouteElevationPreference;
+  points: TrainingHubTrackPoint[];
+  bounds?: {
+    minLat: number;
+    maxLat: number;
+    minLon: number;
+    maxLon: number;
+  };
+  gpxPath?: string;
 }
 
 export interface SpotifyConfig {
@@ -433,4 +581,7 @@ export interface AppUpdateSnapshot {
   downloadPercent?: number;
   releaseNotes?: string;
   error?: string;
+  /** macOS ad-hoc builds cannot self-install; user must open the release asset. */
+  installMethod?: "restart" | "manual";
+  manualInstallUrl?: string;
 }

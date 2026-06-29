@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { CalendarDays } from "lucide-react";
+import type { TrainingHubActivity } from "../../../electron/types";
 import {
   formatDistanceMeters,
   formatDurationSeconds,
@@ -12,10 +13,14 @@ import {
   buildHeatmapSummary,
   mergeTrainingDayLists
 } from "../parsers";
+import {
+  enrichDayListWithActivityTotals
+} from "../weeklyActivity";
 import type { HeatmapCell, TrainingHubSnapshot } from "../types";
 
 interface TrainingHeatmapPanelProps {
   snapshot: TrainingHubSnapshot | null;
+  activities?: TrainingHubActivity[];
 }
 
 const WEEKDAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
@@ -45,17 +50,23 @@ function formatCellAriaLabel(cell: HeatmapCell): string {
   return `${cell.label}: training load ${load}, distance ${distance}, duration ${duration}`;
 }
 
-export function TrainingHeatmapPanel({ snapshot }: TrainingHeatmapPanelProps) {
+export function TrainingHeatmapPanel({
+  snapshot,
+  activities = []
+}: TrainingHeatmapPanelProps) {
   const reducedMotion = usePrefersReducedMotion();
   const [isReady, setIsReady] = useState(false);
 
   const dayList = useMemo(
     () =>
-      mergeTrainingDayLists(
-        snapshot?.dailyMetrics ?? null,
-        snapshot?.analytics ?? null
+      enrichDayListWithActivityTotals(
+        mergeTrainingDayLists(
+          snapshot?.dailyMetrics ?? null,
+          snapshot?.analytics ?? null
+        ),
+        activities
       ),
-    [snapshot]
+    [snapshot, activities]
   );
   const cells = useMemo(
     () => buildHeatmapCells(dayList, TRAINING_HEATMAP_DAYS),

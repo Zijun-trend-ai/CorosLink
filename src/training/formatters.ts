@@ -84,6 +84,112 @@ export function formatPaceSecondsPerKm(value?: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")} /km`;
 }
 
+export function formatCorosCompactPace(value?: number): string {
+  if (!Number.isFinite(value) || !value || value <= 0) {
+    return "";
+  }
+
+  const minutes = Math.floor(value / 60);
+  const seconds = Math.round(value % 60);
+  return `${String(minutes).padStart(2, "0")}'${String(seconds).padStart(2, "0")}"`;
+}
+
+interface PaceZoneBoundary {
+  index: number;
+  pace?: number;
+}
+
+export function formatRunningFitnessPaceRange(
+  minPace?: number,
+  maxPace?: number
+): string | undefined {
+  if (
+    minPace !== undefined &&
+    maxPace !== undefined &&
+    Number.isFinite(minPace) &&
+    Number.isFinite(maxPace)
+  ) {
+    return `${formatCorosCompactPace(minPace)} - ${formatCorosCompactPace(maxPace)}/km`;
+  }
+
+  if (maxPace !== undefined && Number.isFinite(maxPace)) {
+    return `< ${formatCorosCompactPace(maxPace)}/km`;
+  }
+
+  return undefined;
+}
+
+const RUNNING_FITNESS_ZONE_SLOTS = {
+  Endurance: 1,
+  Threshold: 3,
+  Speed: 4,
+  Sprint: 5
+} as const;
+
+const RUNNING_FITNESS_ZONE_SLOTS_BY_COUNT: Record<
+  number,
+  Record<keyof typeof RUNNING_FITNESS_ZONE_SLOTS, number>
+> = {
+  6: {
+    Endurance: 1,
+    Threshold: 3,
+    Speed: 4,
+    Sprint: 5
+  },
+  5: {
+    Endurance: 0,
+    Threshold: 2,
+    Speed: 3,
+    Sprint: 4
+  }
+};
+
+export function buildRunningFitnessPaceLabels(
+  ltspZones: PaceZoneBoundary[]
+): Partial<Record<keyof typeof RUNNING_FITNESS_ZONE_SLOTS, string>> {
+  const zones = ltspZones
+    .filter((zone) => zone.pace !== undefined && Number.isFinite(zone.pace))
+    .sort((left, right) => left.index - right.index);
+
+  const slotMap = RUNNING_FITNESS_ZONE_SLOTS_BY_COUNT[zones.length];
+
+  if (!slotMap) {
+    return {};
+  }
+
+  const labels: Partial<Record<keyof typeof RUNNING_FITNESS_ZONE_SLOTS, string>> =
+    {};
+
+  for (const [label, slotIndex] of Object.entries(slotMap)) {
+    if (label === "Sprint") {
+      const sprintZone = zones[slotIndex];
+
+      if (sprintZone?.pace) {
+        labels.Sprint = formatRunningFitnessPaceRange(undefined, sprintZone.pace);
+      }
+
+      continue;
+    }
+
+    const zone = zones[slotIndex];
+    const fasterZone = zones[slotIndex + 1];
+
+    if (!zone?.pace || !fasterZone?.pace) {
+      continue;
+    }
+
+    const minPace =
+      slotIndex + 1 === zones.length - 1
+        ? fasterZone.pace
+        : fasterZone.pace + 1;
+
+    labels[label as keyof typeof RUNNING_FITNESS_ZONE_SLOTS] =
+      formatRunningFitnessPaceRange(minPace, zone.pace);
+  }
+
+  return labels;
+}
+
 export function formatHappenDayLabel(value: string): string {
   if (!/^\d{8}$/.test(value)) {
     return value;
@@ -125,6 +231,15 @@ export function getLocalHappenDayKey(referenceDate = new Date()): string {
   const month = String(referenceDate.getMonth() + 1).padStart(2, "0");
   const day = String(referenceDate.getDate()).padStart(2, "0");
   return `${year}${month}${day}`;
+}
+
+export function happenDayFromTimestamp(timestamp?: number): string | undefined {
+  if (timestamp === undefined || !Number.isFinite(timestamp) || timestamp <= 0) {
+    return undefined;
+  }
+
+  const ms = timestamp < 10_000_000_000 ? timestamp * 1000 : timestamp;
+  return getLocalHappenDayKey(new Date(ms));
 }
 
 export function isUpcomingWorkoutScheduled(happenDay: string): boolean {
