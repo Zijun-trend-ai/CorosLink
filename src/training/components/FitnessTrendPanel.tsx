@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { TrainingHubActivity } from "../../../electron/types";
+import { SelectDropdown } from "../../components/SelectDropdown";
 import { formatHappenDayLabel } from "../formatters";
 import { mergeTrainingDayLists } from "../parsers";
 import type { TrainingHubSnapshot } from "../types";
@@ -46,6 +47,14 @@ export function FitnessTrendPanel({
     [maxValue]
   );
   const yAxisUnitLabel = getWeeklyActivityYAxisUnitLabel(metric, series.yAxisUnit);
+  const metricOptions = useMemo(
+    () =>
+      WEEKLY_ACTIVITY_METRICS.map((option) => ({
+        value: option,
+        label: getWeeklyActivityMetricLabel(option)
+      })),
+    []
+  );
 
   useEffect(() => {
     setBarsVisible(false);
@@ -57,22 +66,15 @@ export function FitnessTrendPanel({
     <section className="panel training-fitness-panel">
       <div className="training-fitness-header">
         <p className="eyebrow">Weekly Activity</p>
-        <label className="training-metric-select-wrap">
-          <span className="sr-only">Activity metric</span>
-          <select
-            className="training-range-pill training-metric-select"
+        <div className="training-metric-select-wrap">
+          <SelectDropdown
+            className="app-select--pill"
+            label="Activity metric"
             value={metric}
-            onChange={(event) =>
-              setMetric(event.target.value as WeeklyActivityMetric)
-            }
-          >
-            {WEEKLY_ACTIVITY_METRICS.map((option) => (
-              <option key={option} value={option}>
-                {getWeeklyActivityMetricLabel(option)}
-              </option>
-            ))}
-          </select>
-        </label>
+            options={metricOptions}
+            onChange={setMetric}
+          />
+        </div>
       </div>
 
       {series.hasData ? (

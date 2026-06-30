@@ -63,6 +63,7 @@ import type {
   WatchStatus
 } from "../../electron/types";
 import type { CorosLinkApi } from "../coroslink-api";
+import { SelectDropdown } from "../components/SelectDropdown";
 import { formatBytes, formatDate } from "../media/libraryUtils";
 
 type MapsTab = "coros" | "routes";
@@ -555,6 +556,14 @@ function CorosMapsTab({
     );
   }, [manifest]);
 
+  const regionFilterOptions = useMemo(
+    () => [
+      { value: "all", label: "All regions" },
+      ...regionOptions.map(([id, title]) => ({ value: id, label: title }))
+    ],
+    [regionOptions]
+  );
+
   const packages = useMemo(() => {
     const terms = normalizeSearch(query);
     return (manifest?.packages ?? []).filter((pkg) => {
@@ -808,18 +817,13 @@ function CorosMapsTab({
             />
           </label>
 
-          <select
-            className="maps-select"
+          <SelectDropdown
+            className="app-select--maps"
+            label="Region"
             value={regionFilter}
-            onChange={(event) => setRegionFilter(event.target.value)}
-          >
-            <option value="all">All regions</option>
-            {regionOptions.map(([id, title]) => (
-              <option key={id} value={id}>
-                {title}
-              </option>
-            ))}
-          </select>
+            options={regionFilterOptions}
+            onChange={setRegionFilter}
+          />
 
           <label className="check-row maps-check">
             <input
@@ -1910,38 +1914,30 @@ function RouteBuilderTab({
           <div className="route-form-row">
             <label className="route-field">
               <span>Sport</span>
-              <select
-                className="maps-select"
+              <SelectDropdown
+                className="app-select--maps"
+                label="Sport"
                 value={request.activityType}
-                onChange={(event) =>
-                  handleActivityChange(event.target.value as RouteActivityType)
-                }
-              >
-                {ROUTE_ACTIVITY_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+                options={ROUTE_ACTIVITY_OPTIONS}
+                onChange={handleActivityChange}
+              />
             </label>
 
             <label className="route-field">
               <span>Elevation</span>
-              <select
-                className="maps-select"
+              <SelectDropdown
+                className="app-select--maps"
+                label="Elevation"
                 value={request.elevationPreference}
-                onChange={(event) =>
+                options={ROUTE_ELEVATION_OPTIONS}
+                onChange={(elevationPreference) =>
                   setRequestField(
                     setRequest,
                     "elevationPreference",
-                    event.target.value as RouteElevationPreference
+                    elevationPreference
                   )
                 }
-              >
-                <option value="any">Any</option>
-                <option value="flatter">Flatter</option>
-                <option value="hilly">Hilly</option>
-              </select>
+              />
             </label>
           </div>
 
@@ -3607,6 +3603,15 @@ const ROUTE_ACTIVITY_OPTIONS: Array<{
   { value: "hiking", label: "Hiking" },
   { value: "cycling-road", label: "Road cycling" },
   { value: "cycling-mountain", label: "Mountain biking" }
+];
+
+const ROUTE_ELEVATION_OPTIONS: Array<{
+  value: RouteElevationPreference;
+  label: string;
+}> = [
+  { value: "any", label: "Any" },
+  { value: "flatter", label: "Flatter" },
+  { value: "hilly", label: "Hilly" }
 ];
 
 function activityTypeLabel(activityType: RouteActivityType): string {
