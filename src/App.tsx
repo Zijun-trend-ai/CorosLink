@@ -3447,7 +3447,13 @@ function YouTubeMusicView({
 
   return (
     <div className="stack stack-fill">
-      <section className="panel spotify-account-panel">
+      <section
+        className={
+          status?.authenticated
+            ? "panel spotify-account-panel"
+            : "panel spotify-account-panel music-connect-panel"
+        }
+      >
         {status?.authenticated ? (
           <div className="spotify-account-card youtube-music-account-card">
             <div
@@ -4541,7 +4547,13 @@ function AppleMusicView() {
 
   return (
     <div className="stack stack-fill">
-      <section className="panel spotify-account-panel">
+      <section
+        className={
+          status?.authenticated
+            ? "panel spotify-account-panel"
+            : "panel spotify-account-panel music-connect-panel"
+        }
+      >
         {status?.authenticated ? (
           <div className="spotify-account-card apple-music-account-card">
             <div
@@ -4586,7 +4598,7 @@ function AppleMusicView() {
               </div>
               <div className="youtube-music-connect-intro">
                 <p className="eyebrow">Apple Music</p>
-                <h2>Connect your account</h2>
+                <h2>Connect your library</h2>
                 <span>
                   Paste the request headers from music.apple.com to read
                   playlist metadata. No Apple Developer account needed.
