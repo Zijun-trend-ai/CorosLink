@@ -13,6 +13,11 @@ const userAgent = "coroslink";
 const PINNED_YT_DLP_VERSION = "2026.06.09";
 const PINNED_YTMUSICAPI_VERSION = "1.12.1";
 const BUNDLED_PYTHON_VERSION = "310";
+// Self-contained CPython shipped with the app so users don't need Python
+// installed. Sourced from astral-sh/python-build-standalone (relocatable,
+// "install_only" flavor). Override the release tag with PYTHON_STANDALONE_TAG.
+const BUNDLED_PYTHON_RUNTIME_VERSION = "3.11.13";
+const PINNED_PYTHON_STANDALONE_TAG = "20250612";
 
 const options = parseArgs(process.argv.slice(2));
 const targetPlatform = options.platform ?? process.platform;
@@ -28,6 +33,11 @@ await fs.promises.mkdir(outputDir, { recursive: true });
 
 await downloadYtDlp(path.join(outputDir, ytDlpOutput), ytDlpAsset);
 await copyFfmpeg(path.join(outputDir, ffmpegOutput), targetPlatform, targetArch);
+await installPythonRuntime(
+  path.join(outputDir, "python-runtime"),
+  targetPlatform,
+  targetArch
+);
 await installPythonPackages(path.join(outputDir, "python"));
 
 console.log(`Prepared bundled binaries in ${path.relative(repoRoot, outputDir)}`);
@@ -200,6 +210,59 @@ async function installPythonPackages(destination) {
     const detail = stderr ? `\n${stderr}` : "";
     throw new Error(`Could not vendor ytmusicapi with pip.${detail}`);
   }
+}
+
+async function installPythonRuntime(destination, platform, arch) {
+  const triple = resolvePythonStandaloneTriple(platform, arch);
+  const tag = process.env.PYTHON_STANDALONE_TAG?.trim() || PINNED_PYTHON_STANDALONE_TAG;
+  const assetName = `cpython-${BUNDLED_PYTHON_RUNTIME_VERSION}+${tag}-${triple}-install_only.tar.gz`;
+  const url = `https://github.com/astral-sh/python-build-standalone/releases/download/${tag}/${assetName}`;
+
+  const archive = await downloadBuffer(url);
+  const parentDir = path.dirname(destination);
+  const extractRoot = path.join(parentDir, ".python-runtime-tmp");
+
+  await fs.promises.rm(destination, { recursive: true, force: true });
+  await fs.promises.rm(extractRoot, { recursive: true, force: true });
+  await fs.promises.mkdir(extractRoot, { recursive: true });
+
+  const archivePath = path.join(parentDir, ".python-runtime.tar.gz");
+  await fs.promises.writeFile(archivePath, archive);
+
+  try {
+    // The archive extracts to a top-level "python/" directory. Use the system
+    // tar (macOS/Linux, and bsdtar on Windows 10+) to preserve executable bits.
+    await execFileAsync("tar", ["-xzf", archivePath, "-C", extractRoot]);
+    await fs.promises.rename(path.join(extractRoot, "python"), destination);
+  } finally {
+    await fs.promises.rm(archivePath, { force: true });
+    await fs.promises.rm(extractRoot, { recursive: true, force: true });
+  }
+
+  console.log(
+    `Vendored CPython ${BUNDLED_PYTHON_RUNTIME_VERSION} (${triple}) in ${path.relative(
+      repoRoot,
+      destination
+    )}`
+  );
+}
+
+function resolvePythonStandaloneTriple(platform, arch) {
+  if (platform === "darwin") {
+    return arch === "arm64" ? "aarch64-apple-darwin" : "x86_64-apple-darwin";
+  }
+
+  if (platform === "win32") {
+    return "x86_64-pc-windows-msvc";
+  }
+
+  if (platform === "linux") {
+    return arch === "arm64"
+      ? "aarch64-unknown-linux-gnu"
+      : "x86_64-unknown-linux-gnu";
+  }
+
+  throw new Error(`Unsupported Python runtime platform: ${platform}-${arch}`);
 }
 
 async function findPythonCommand() {

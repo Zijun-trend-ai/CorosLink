@@ -444,7 +444,8 @@ async function checkYtMusicApi(): Promise<PythonCheckResult> {
     return {
       pythonAvailable: false,
       ytmusicapiAvailable: false,
-      error: "Python 3.10+ is not available. Install Python 3.10+ to use YouTube Music."
+      error:
+        "The bundled Python runtime is missing. Reinstall CorosLink or run npm run binaries:prepare."
     };
   }
 
@@ -470,7 +471,10 @@ async function requireYtMusicApi(): Promise<
 > {
   const check = await checkYtMusicApi();
   if (!check.pythonCommand) {
-    throw new Error(check.error ?? "Python 3.10+ is not available.");
+    throw new Error(
+      check.error ??
+        "The bundled Python runtime is missing. Reinstall CorosLink or run npm run binaries:prepare."
+    );
   }
 
   if (!check.ytmusicapiAvailable) {
@@ -487,7 +491,12 @@ async function requireYtMusicApi(): Promise<
 }
 
 async function findPythonCommand(): Promise<string | undefined> {
-  for (const command of PYTHON_COMMANDS) {
+  const bundledInterpreter = getBundledPythonInterpreterPath();
+  const candidates = bundledInterpreter
+    ? [bundledInterpreter, ...PYTHON_COMMANDS]
+    : PYTHON_COMMANDS;
+
+  for (const command of candidates) {
     try {
       const { stdout } = await execFileAsync(
         command,
@@ -503,6 +512,35 @@ async function findPythonCommand(): Promise<string | undefined> {
       }
     } catch {
       // Try the next candidate.
+    }
+  }
+
+  return undefined;
+}
+
+// Locate the self-contained CPython interpreter shipped with the app so users
+// don't need Python installed. Mirrors getBundledPythonPackagePath, but points
+// at the interpreter vendored by scripts/prepare-binaries.mjs.
+function getBundledPythonInterpreterPath(): string | undefined {
+  const platformDirectory = `${process.platform}-${process.arch}`;
+  const relativeExecutable =
+    process.platform === "win32"
+      ? path.join("python-runtime", "python.exe")
+      : path.join("python-runtime", "bin", "python3");
+  const basePaths = [process.resourcesPath, app.getAppPath(), process.cwd()].filter(
+    Boolean
+  );
+
+  for (const basePath of basePaths) {
+    const candidates = [
+      path.join(basePath, "bin", platformDirectory, relativeExecutable),
+      path.join(basePath, "bin", relativeExecutable)
+    ];
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
     }
   }
 
