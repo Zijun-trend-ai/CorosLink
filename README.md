@@ -38,7 +38,7 @@
 
 ## Overview
 
-CorosLink brings music management, watch maps, route planning, and training analytics together for your **COROS watch**. Connect over USB to sync MP3s and map packages, download music from YouTube or Spotify playlists, build GPX routes on your desktop, and explore your training data in a rich dashboard — all from your Mac, PC, or Linux machine.
+CorosLink brings music management, watch maps, route planning, and training analytics together for your **COROS watch**. Connect over USB to sync MP3s and map packages, download music from YouTube, Spotify, YouTube Music, or Apple Music playlists, build GPX routes on your desktop, and explore your training data in a rich dashboard — all from your Mac, PC, or Linux machine.
 
 ---
 
@@ -52,7 +52,7 @@ Your home screen for watch status, library metrics, and quick actions. See every
 - **Time-of-day greeting** with a watch hero image and live connection status
 - **Storage ring** showing used space, free space, and total capacity for your model (4 GB or 32 GB)
 - **Metric tiles** for local library count, tracks on watch, transferred count, and library size
-- **Quick actions** to jump into YouTube browsing or Spotify sync
+- **Quick actions** to jump into YouTube browsing, playlist sync, or Spotify sync
 - **Paste-a-link download** with optional auto-transfer to your watch
 - **Recent downloads** with per-track transfer and delete actions
 
@@ -64,7 +64,7 @@ Your home screen for watch status, library metrics, and quick actions. See every
 
 ### Media — Music manager
 
-Download, organize, and sync MP3s to your watch. Three integrated workflows cover every way you add music.
+Download, organize, and sync MP3s to your watch. Multiple integrated workflows cover every way you add music.
 
 #### Library
 
@@ -103,6 +103,31 @@ Sync your Spotify playlists to MP3s and your watch.
 <p align="center">
   <img src="docs/screenshots/spotify.png" alt="Spotify sync" width="900" />
 </p>
+
+#### YouTube Playlists
+
+Sync your YouTube channel playlists with Google OAuth.
+
+- **Google OAuth login** with your own Google Cloud OAuth credentials
+- **Browse your playlists** and queue individual tracks for download
+- **Background download queue** with live progress
+
+#### YouTube Music
+
+Sync your YouTube Music library by pasting request headers from your browser.
+
+- **Header-based connect** — copy a `browse` request from DevTools on music.youtube.com (visual guide in-app)
+- **Sync playlists and liked songs** from your library
+- **Queue tracks** to download and transfer to your watch
+- Requires **Python 3.10+** and **`ytmusicapi`** (`python3 -m pip install ytmusicapi`)
+
+#### Apple Music
+
+Browse your Apple Music library playlists and queue tracks for download.
+
+- **Header-based connect** — copy an `amp-api` request from DevTools on music.apple.com (visual guide in-app)
+- **Library playlists** load automatically when `media-user-token` is included
+- **Tracks resolve via YouTube search** — Apple Music streams are DRM-protected, so downloads use the same YouTube matching flow as Spotify sync
 
 ---
 
@@ -169,6 +194,9 @@ CorosLink uses independent data paths — USB for watch files, OpenRouteService 
 flowchart LR
   YouTube --> ytDlp[yt-dlp + ffmpeg]
   Spotify --> ytDlp
+  YouTubeMusic[YouTube Music] --> ytDlp
+  AppleMusic[Apple Music] --> ytDlp
+  YouTubePlaylists[YouTube Playlists] --> ytDlp
   ytDlp --> SQLite[(Local SQLite)]
   SQLite --> USBMusic[USB Music folder]
   MapCDN[map-oss-us.coros.com] --> MapCache[Local map cache]
@@ -248,6 +276,8 @@ Installers are written to `release/`.
 - **yt-dlp** and **ffmpeg** — bundled in packaged builds; falls back to `PATH` if missing
 - **OpenRouteService API key** (optional) — only needed for Route Builder
 - **Spotify Developer app** (optional) — only needed for Spotify playlist sync
+- **Google Cloud OAuth app** (optional) — only needed for YouTube Playlists sync
+- **Python 3.10+** and **ytmusicapi** (optional) — only needed for YouTube Music library sync
 - **COROS account** (optional) — only needed for Training Hub
 
 ---
@@ -256,6 +286,8 @@ Installers are written to `release/`.
 
 - **Music and downloads** — stored locally in the Electron user data directory (SQLite database + MP3 files on disk)
 - **Spotify tokens** — stored locally in SQLite after OAuth; never sent anywhere except Spotify
+- **Google OAuth tokens** — stored locally in SQLite after OAuth; used only for YouTube Data API playlist reads
+- **YouTube Music / Apple Music headers** — stored locally and used only to read your library metadata; never sent to CorosLink servers
 - **Map cache** — downloaded map packages are stored in a local folder you choose; copied to the watch over USB only
 - **OpenRouteService** — route requests are sent to OpenRouteService when you generate a route (your API key is stored locally)
 - **Training Hub** — your COROS email and password are used to authenticate with COROS servers. Activity data is fetched on demand and not synced to any third-party service
@@ -318,6 +350,41 @@ https://127.0.0.1:4567/callback
 Paste the app's Client ID and Client Secret into the Spotify Sync view. The app opens a local OAuth login window and stores the resulting token locally in SQLite.
 
 Playlist sync reads the authenticated user's playlists and only enables playlists that Spotify allows the user to read — currently playlists the user owns or collaborates on. Each track is searched on YouTube as `<artist> <track> official audio`, downloaded as an MP3, and saved as `Artist - Track Name.mp3`.
+
+</details>
+
+<details>
+<summary><strong>YouTube Playlists setup</strong></summary>
+
+Create an OAuth 2.0 Client ID in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) (Desktop app or Web application), enable the **YouTube Data API v3**, then add this redirect URI exactly:
+
+```text
+http://127.0.0.1:4568
+```
+
+Paste the Client ID and Client Secret into the YouTube Playlists view, then connect. The app opens a local OAuth login window and stores tokens locally in SQLite.
+
+</details>
+
+<details>
+<summary><strong>YouTube Music setup</strong></summary>
+
+Install Python 3.10+ and ytmusicapi:
+
+```sh
+python3 -m pip install ytmusicapi
+```
+
+Open [music.youtube.com](https://music.youtube.com/library) while signed in, open DevTools (F12), go to the **Network** tab, filter for `browse`, right-click a **POST** request, and choose **Copy → Copy as cURL**. Paste the command into CorosLink and connect. Headers must include `cookie` and `x-goog-authuser`. They expire when you sign out of YouTube Music in your browser — re-paste if syncing stops.
+
+</details>
+
+<details>
+<summary><strong>Apple Music setup</strong></summary>
+
+Open [music.apple.com](https://music.apple.com) while signed in, open DevTools (F12), go to the **Network** tab, filter for `amp-api`, right-click any request, and choose **Copy → Copy as cURL**. Paste into CorosLink and connect. The `authorization` bearer token is required; include `media-user-token` for personal library playlists. Tokens expire often — re-paste if fetching stops working.
+
+Apple Music streams are DRM-protected. CorosLink reads playlist metadata from Apple and resolves each track via YouTube search for download (same approach as Spotify sync).
 
 </details>
 

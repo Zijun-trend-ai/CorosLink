@@ -5,6 +5,20 @@ All notable changes to CorosLink are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.11] - 2026-06-30
+
+### Added
+
+- **YouTube Playlists** — connect with Google OAuth credentials, browse your playlists, and queue tracks for download
+- **YouTube Music** — sync playlists and liked songs by pasting DevTools headers (requires Python 3 + ytmusicapi)
+- **Apple Music** — browse library playlists via pasted amp-api headers; tracks resolve to YouTube for download
+- **Connect helper images** — visual DevTools guides for YouTube Music and Apple Music header setup
+- Shared **SelectDropdown** component for consistent media UI pickers
+
+### Fixed
+
+- Windows auto-update artifacts aligned with release verification in CI
+
 ## [0.1.10] - 2026-06-29
 
 ### Added
@@ -112,6 +126,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - GitHub Actions release workflow and installer build documentation
 
+[0.1.11]: https://github.com/JunAkerBuilds/CorosLink/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/JunAkerBuilds/CorosLink/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/JunAkerBuilds/CorosLink/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/JunAkerBuilds/CorosLink/compare/v0.1.7...v0.1.8
