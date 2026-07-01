@@ -9,7 +9,6 @@ import {
   HardDrive,
   Home,
   LayoutGrid,
-  Library,
   Link,
   ListMusic,
   LogIn,
@@ -57,10 +56,6 @@ import type {
   WatchStatus,
   WatchTrack,
   AppUpdateSnapshot,
-  YouTubeDataConfig,
-  YouTubeDataPlaylist,
-  YouTubeDataPlaylistItem,
-  YouTubeDataStatus,
   YouTubeMusicPlaylist,
   YouTubeMusicSong,
   YouTubeMusicStatus,
@@ -94,7 +89,6 @@ type View = "overview" | "media" | "training" | "maps";
 type MediaTab =
   | "library"
   | "youtube"
-  | "youtube-data"
   | "youtube-music"
   | "spotify"
   | "apple-music";
@@ -143,23 +137,6 @@ export default function App() {
   const [youtubeCurrentUrl, setYoutubeCurrentUrl] = useState(YOUTUBE_HOME_URL);
   const [youtubeTitle, setYoutubeTitle] = useState("YouTube");
   const [youtubeJobs, setYoutubeJobs] = useState<DownloadJob[]>([]);
-  const [youtubeDataConfig, setYoutubeDataConfig] = useState<YouTubeDataConfig>(
-    {
-      clientId: "",
-      clientSecret: "",
-      redirectUri: "",
-    },
-  );
-  const [youtubeDataStatus, setYoutubeDataStatus] =
-    useState<YouTubeDataStatus | null>(null);
-  const [youtubeDataPlaylists, setYoutubeDataPlaylists] = useState<
-    YouTubeDataPlaylist[]
-  >([]);
-  const [selectedYouTubeDataPlaylistId, setSelectedYouTubeDataPlaylistId] =
-    useState("");
-  const [youtubeDataItems, setYoutubeDataItems] = useState<
-    YouTubeDataPlaylistItem[]
-  >([]);
   const [youtubeMusicStatus, setYoutubeMusicStatus] =
     useState<YouTubeMusicStatus | null>(null);
   const [youtubeMusicPlaylists, setYoutubeMusicPlaylists] = useState<
@@ -267,31 +244,6 @@ export default function App() {
       setSelectedSpotifyPlaylistId("");
       setSpotifyTracks([]);
       setSpotifySyncTracks([]);
-    }
-  }, [api]);
-
-  const refreshYouTubeData = useCallback(async () => {
-    if (!api) {
-      return;
-    }
-
-    const [config, status] = await Promise.all([
-      api.getYouTubeDataConfig(),
-      api.getYouTubeDataStatus(),
-    ]);
-    setYoutubeDataConfig(config);
-    setYoutubeDataStatus(status);
-
-    if (status.authenticated) {
-      const playlists = await api.listYouTubeDataPlaylists();
-      setYoutubeDataPlaylists(playlists);
-      setSelectedYouTubeDataPlaylistId(
-        (current) => current || playlists[0]?.id || "",
-      );
-    } else {
-      setYoutubeDataPlaylists([]);
-      setSelectedYouTubeDataPlaylistId("");
-      setYoutubeDataItems([]);
     }
   }, [api]);
 
@@ -468,9 +420,6 @@ export default function App() {
     void refreshSpotify().catch((caught) => {
       setError(toErrorMessage(caught));
     });
-    void refreshYouTubeData().catch((caught) => {
-      setError(toErrorMessage(caught));
-    });
     void refreshYouTubeMusic().catch((caught) => {
       setError(toErrorMessage(caught));
     });
@@ -488,7 +437,6 @@ export default function App() {
     refreshAll,
     refreshSpotify,
     refreshTrainingHub,
-    refreshYouTubeData,
     refreshYouTubeMusic,
   ]);
 
@@ -567,18 +515,6 @@ export default function App() {
     void loadSpotifyPlaylist(selectedSpotifyPlaylistId);
   }, [api, selectedSpotifyPlaylistId, spotifyStatus?.authenticated]);
 
-  useEffect(() => {
-    if (
-      !api ||
-      !selectedYouTubeDataPlaylistId ||
-      !youtubeDataStatus?.authenticated
-    ) {
-      return;
-    }
-
-    void loadYouTubeDataPlaylist(selectedYouTubeDataPlaylistId);
-  }, [api, selectedYouTubeDataPlaylistId, youtubeDataStatus?.authenticated]);
-
   const storage = useMemo(() => {
     if (!watchStatus?.connected) {
       return null;
@@ -613,7 +549,6 @@ export default function App() {
         refreshAll(),
         refreshSpotify(),
         refreshTrainingHub(),
-        refreshYouTubeData(),
         refreshYouTubeMusic(),
       ]);
     } catch (caught) {
@@ -685,24 +620,6 @@ export default function App() {
     }
   }
 
-  async function loadYouTubeDataPlaylist(playlistId: string) {
-    if (!api) {
-      return;
-    }
-
-    setBusy(`youtube-data-load:${playlistId}`);
-    setError(null);
-
-    try {
-      setYoutubeDataItems(await api.listYouTubeDataPlaylistItems(playlistId));
-    } catch (caught) {
-      setError(toErrorMessage(caught));
-      setYoutubeDataItems([]);
-    } finally {
-      setBusy(null);
-    }
-  }
-
   async function handleSpotifyConfigSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!api) {
@@ -717,29 +634,6 @@ export default function App() {
       const status = await api.saveSpotifyConfig(spotifyConfig);
       setSpotifyStatus(status);
       setMessage("Spotify settings saved.");
-    } catch (caught) {
-      setError(toErrorMessage(caught));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function handleYouTubeDataConfigSubmit(
-    event: FormEvent<HTMLFormElement>,
-  ) {
-    event.preventDefault();
-    if (!api) {
-      return;
-    }
-
-    setBusy("youtube-data-config");
-    setError(null);
-    setMessage(null);
-
-    try {
-      const status = await api.saveYouTubeDataConfig(youtubeDataConfig);
-      setYoutubeDataStatus(status);
-      setMessage("YouTube Playlists settings saved.");
     } catch (caught) {
       setError(toErrorMessage(caught));
     } finally {
@@ -792,27 +686,6 @@ export default function App() {
     }
   }
 
-  async function handleYouTubeDataLogin() {
-    if (!api) {
-      return;
-    }
-
-    setBusy("youtube-data-login");
-    setError(null);
-    setMessage(null);
-
-    try {
-      const status = await api.loginYouTubeData();
-      setYoutubeDataStatus(status);
-      setMessage("YouTube Playlists connected.");
-      await refreshYouTubeData();
-    } catch (caught) {
-      setError(toErrorMessage(caught));
-    } finally {
-      setBusy(null);
-    }
-  }
-
   async function handleSpotifyLogout() {
     if (!api) {
       return;
@@ -829,28 +702,6 @@ export default function App() {
       setSpotifySyncTracks([]);
       setSelectedSpotifyPlaylistId("");
       setMessage("Spotify account disconnected.");
-    } catch (caught) {
-      setError(toErrorMessage(caught));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function handleYouTubeDataLogout() {
-    if (!api) {
-      return;
-    }
-
-    setBusy("youtube-data-logout");
-    setError(null);
-    setMessage(null);
-
-    try {
-      setYoutubeDataStatus(await api.logoutYouTubeData());
-      setYoutubeDataPlaylists([]);
-      setYoutubeDataItems([]);
-      setSelectedYouTubeDataPlaylistId("");
-      setMessage("YouTube Playlists disconnected.");
     } catch (caught) {
       setError(toErrorMessage(caught));
     } finally {
@@ -903,27 +754,6 @@ export default function App() {
     } finally {
       setBusy(null);
     }
-  }
-
-  async function handleQueueYouTubeDataItem(item: YouTubeDataPlaylistItem) {
-    await handleYouTubeDownload({
-      url: item.videoUrl,
-      title: item.title,
-    });
-  }
-
-  async function handleQueueYouTubeDataPlaylist(playlistId: string) {
-    await handleYouTubeDownload({
-      url: `https://www.youtube.com/playlist?list=${encodeURIComponent(
-        playlistId,
-      )}`,
-    });
-  }
-
-  function handleOpenYouTubeDataItem(item: YouTubeDataPlaylistItem) {
-    setYoutubeUrl(item.videoUrl);
-    setYoutubeInput(item.videoUrl);
-    openMediaTab("youtube");
   }
 
   async function handleSyncYouTubeMusicLibrary() {
@@ -1617,23 +1447,6 @@ export default function App() {
                     onClearJob={handleClearYouTubeJob}
                     onClearCompletedJobs={handleClearCompletedYouTubeJobs}
                   />
-                ) : activeMediaTab === "youtube-data" ? (
-                  <YouTubeDataView
-                    config={youtubeDataConfig}
-                    status={youtubeDataStatus}
-                    playlists={youtubeDataPlaylists}
-                    selectedPlaylistId={selectedYouTubeDataPlaylistId}
-                    items={youtubeDataItems}
-                    busy={busy}
-                    onConfigChange={setYoutubeDataConfig}
-                    onConfigSubmit={handleYouTubeDataConfigSubmit}
-                    onLogin={handleYouTubeDataLogin}
-                    onLogout={handleYouTubeDataLogout}
-                    onSelectPlaylist={setSelectedYouTubeDataPlaylistId}
-                    onQueuePlaylist={handleQueueYouTubeDataPlaylist}
-                    onQueueItem={handleQueueYouTubeDataItem}
-                    onOpenItem={handleOpenYouTubeDataItem}
-                  />
                 ) : activeMediaTab === "youtube-music" ? (
                   <YouTubeMusicView
                     status={youtubeMusicStatus}
@@ -1729,11 +1542,6 @@ function MediaView({ activeTab, onTabChange, children }: MediaViewProps) {
       id: "youtube",
       label: "YouTube Browser",
       icon: <Link size={16} aria-hidden="true" />,
-    },
-    {
-      id: "youtube-data",
-      label: "YouTube Playlists",
-      icon: <Library size={16} aria-hidden="true" />,
     },
     {
       id: "youtube-music",
@@ -3088,304 +2896,6 @@ interface SpotifySyncViewProps {
   onSelectPlaylist: (playlistId: string) => void;
   onAutoTransferChange: (value: boolean) => void;
   onSync: () => void;
-}
-
-interface YouTubeDataViewProps {
-  config: YouTubeDataConfig;
-  status: YouTubeDataStatus | null;
-  playlists: YouTubeDataPlaylist[];
-  selectedPlaylistId: string;
-  items: YouTubeDataPlaylistItem[];
-  busy: string | null;
-  onConfigChange: (config: YouTubeDataConfig) => void;
-  onConfigSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onLogin: () => void;
-  onLogout: () => void;
-  onSelectPlaylist: (playlistId: string) => void;
-  onQueuePlaylist: (playlistId: string) => void;
-  onQueueItem: (item: YouTubeDataPlaylistItem) => void;
-  onOpenItem: (item: YouTubeDataPlaylistItem) => void;
-}
-
-function YouTubeDataView({
-  config,
-  status,
-  playlists,
-  selectedPlaylistId,
-  items,
-  busy,
-  onConfigChange,
-  onConfigSubmit,
-  onLogin,
-  onLogout,
-  onSelectPlaylist,
-  onQueuePlaylist,
-  onQueueItem,
-  onOpenItem,
-}: YouTubeDataViewProps) {
-  const selectedPlaylist = playlists.find(
-    (playlist) => playlist.id === selectedPlaylistId,
-  );
-  const loadingItems = busy?.startsWith("youtube-data-load") ?? false;
-
-  return (
-    <div className="stack stack-fill">
-      <section className="panel spotify-account-panel">
-        {status?.authenticated ? (
-          <div className="spotify-account-card youtube-data-account-card">
-            <div
-              className="spotify-account-mark youtube-data-account-mark"
-              aria-hidden="true"
-            >
-              <Library size={22} />
-            </div>
-            <div className="spotify-account-copy">
-              <p className="eyebrow">YouTube Playlists</p>
-              <h2>{status.displayName ?? "Connected"}</h2>
-              <span>
-                {playlists.length} playlist{playlists.length === 1 ? "" : "s"}{" "}
-                available
-              </span>
-            </div>
-            <button
-              className="secondary-button"
-              type="button"
-              disabled={busy === "youtube-data-logout"}
-              onClick={onLogout}
-            >
-              {busy === "youtube-data-logout" ? (
-                <Loader2 className="spin" size={17} aria-hidden="true" />
-              ) : (
-                <LogOut size={17} aria-hidden="true" />
-              )}
-              Disconnect
-            </button>
-          </div>
-        ) : (
-          <>
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">Google OAuth</p>
-                <h2>Connect YouTube Playlists</h2>
-              </div>
-              <span className="badge">Not connected</span>
-            </div>
-
-            <form className="settings-grid" onSubmit={onConfigSubmit}>
-              <label className="field">
-                <span>Client ID</span>
-                <input
-                  value={config.clientId}
-                  onChange={(event) =>
-                    onConfigChange({ ...config, clientId: event.target.value })
-                  }
-                  placeholder="Google OAuth client ID"
-                  disabled={busy === "youtube-data-config"}
-                />
-              </label>
-              <label className="field">
-                <span>Client Secret</span>
-                <input
-                  value={config.clientSecret}
-                  onChange={(event) =>
-                    onConfigChange({
-                      ...config,
-                      clientSecret: event.target.value,
-                    })
-                  }
-                  placeholder="Google OAuth client secret"
-                  type="password"
-                  disabled={busy === "youtube-data-config"}
-                />
-              </label>
-              <label className="field">
-                <span>Redirect URI</span>
-                <input value={config.redirectUri} readOnly />
-              </label>
-
-              <div className="settings-actions">
-                <button
-                  className="secondary-button"
-                  type="submit"
-                  disabled={busy === "youtube-data-config"}
-                >
-                  <Settings size={17} aria-hidden="true" />
-                  Save
-                </button>
-                <button
-                  className="primary-button"
-                  type="button"
-                  disabled={
-                    !status?.configured || busy === "youtube-data-login"
-                  }
-                  onClick={onLogin}
-                >
-                  {busy === "youtube-data-login" ? (
-                    <Loader2 className="spin" size={17} aria-hidden="true" />
-                  ) : (
-                    <LogIn size={17} aria-hidden="true" />
-                  )}
-                  Log in
-                </button>
-              </div>
-            </form>
-          </>
-        )}
-      </section>
-
-      <section className="spotify-layout youtube-data-layout">
-        <aside className="panel playlist-panel">
-          <div className="section-heading compact">
-            <div>
-              <p className="eyebrow">Playlists</p>
-              <h2>{playlists.length}</h2>
-            </div>
-          </div>
-          <div className="playlist-list">
-            {playlists.length === 0 ? (
-              <EmptyState title="No playlists loaded" />
-            ) : (
-              playlists.map((playlist) => (
-                <button
-                  key={playlist.id}
-                  className={
-                    playlist.id === selectedPlaylistId
-                      ? "playlist-button active"
-                      : "playlist-button"
-                  }
-                  type="button"
-                  onClick={() => onSelectPlaylist(playlist.id)}
-                >
-                  <strong>{playlist.title}</strong>
-                  <span>
-                    {playlist.totalItems} video
-                    {playlist.totalItems === 1 ? "" : "s"}
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
-        </aside>
-
-        <section className="panel panel-flex">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">
-                {selectedPlaylist?.channelTitle ?? "Playlist"}
-              </p>
-              <h2>{selectedPlaylist?.title ?? "Select a playlist"}</h2>
-            </div>
-            <div className="topbar-actions">
-              <button
-                className="primary-button"
-                type="button"
-                disabled={!selectedPlaylist || busy?.startsWith("youtube-data")}
-                onClick={() =>
-                  selectedPlaylist && onQueuePlaylist(selectedPlaylist.id)
-                }
-              >
-                <Download size={17} aria-hidden="true" />
-                Queue playlist
-              </button>
-            </div>
-          </div>
-
-          <YouTubeDataItemTable
-            items={items}
-            loading={loadingItems}
-            onQueueItem={onQueueItem}
-            onOpenItem={onOpenItem}
-          />
-        </section>
-      </section>
-    </div>
-  );
-}
-
-interface YouTubeDataItemTableProps {
-  items: YouTubeDataPlaylistItem[];
-  loading: boolean;
-  onQueueItem: (item: YouTubeDataPlaylistItem) => void;
-  onOpenItem: (item: YouTubeDataPlaylistItem) => void;
-}
-
-function YouTubeDataItemTable({
-  items,
-  loading,
-  onQueueItem,
-  onOpenItem,
-}: YouTubeDataItemTableProps) {
-  if (loading) {
-    return (
-      <div className="empty-state">
-        <Loader2 className="spin" size={24} aria-hidden="true" />
-        <strong>Loading playlist</strong>
-      </div>
-    );
-  }
-
-  if (items.length === 0) {
-    return <EmptyState title="No videos selected" />;
-  }
-
-  return (
-    <div className="table-shell youtube-data-table-shell">
-      <table>
-        <thead>
-          <tr>
-            <th>Video</th>
-            <th>Channel</th>
-            <th>Added</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <tr key={item.id}>
-              <td>
-                <div className="youtube-data-video-cell">
-                  {item.thumbnailUrl ? (
-                    <img src={item.thumbnailUrl} alt="" />
-                  ) : (
-                    <span className="youtube-data-thumbnail-placeholder">
-                      <Music size={18} aria-hidden="true" />
-                    </span>
-                  )}
-                  <strong>{item.title}</strong>
-                </div>
-              </td>
-              <td>{item.channelTitle ?? "YouTube"}</td>
-              <td>
-                {item.publishedAt ? formatDate(item.publishedAt) : "Unknown"}
-              </td>
-              <td>
-                <div className="table-actions">
-                  <button
-                    className="icon-button"
-                    type="button"
-                    title="Queue"
-                    aria-label={`Queue ${item.title}`}
-                    onClick={() => onQueueItem(item)}
-                  >
-                    <Download size={16} aria-hidden="true" />
-                  </button>
-                  <button
-                    className="icon-button"
-                    type="button"
-                    title="Open in YouTube"
-                    aria-label={`Open ${item.title} in YouTube`}
-                    onClick={() => onOpenItem(item)}
-                  >
-                    <ArrowRight size={16} aria-hidden="true" />
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
 }
 
 interface YouTubeMusicViewProps {

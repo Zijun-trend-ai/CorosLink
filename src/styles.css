@@ -3957,12 +3957,6 @@ td span {
   color: var(--success-text);
 }
 
-.youtube-data-account-mark {
-  border-color: rgba(248, 113, 113, 0.35);
-  background: rgba(248, 113, 113, 0.12);
-  color: #fca5a5;
-}
-
 .youtube-music-account-mark {
   border-color: rgba(216, 155, 34, 0.35);
   background: rgba(216, 155, 34, 0.13);
@@ -4452,36 +4446,6 @@ td span {
   font-size: 11px;
   line-height: 1.3;
   overflow-wrap: anywhere;
-}
-
-.youtube-data-video-cell {
-  display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.youtube-data-video-cell img,
-.youtube-data-thumbnail-placeholder {
-  width: 76px;
-  aspect-ratio: 16 / 9;
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-sm);
-  object-fit: cover;
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.youtube-data-thumbnail-placeholder {
-  display: grid;
-  place-items: center;
-  color: var(--text-muted);
-}
-
-.youtube-data-video-cell strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .table-actions {

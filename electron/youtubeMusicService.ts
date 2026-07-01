@@ -444,7 +444,7 @@ async function checkYtMusicApi(): Promise<PythonCheckResult> {
     return {
       pythonAvailable: false,
       ytmusicapiAvailable: false,
-      error: "Python 3 is not available. Install Python 3.10+ and ytmusicapi."
+      error: "Python 3.10+ is not available. Install Python 3.10+ to use YouTube Music."
     };
   }
 
@@ -460,7 +460,7 @@ async function checkYtMusicApi(): Promise<PythonCheckResult> {
       pythonCommand,
       pythonAvailable: true,
       ytmusicapiAvailable: false,
-      error: toErrorMessage(caught)
+      error: formatYtMusicApiCheckError(caught)
     };
   }
 }
@@ -470,13 +470,13 @@ async function requireYtMusicApi(): Promise<
 > {
   const check = await checkYtMusicApi();
   if (!check.pythonCommand) {
-    throw new Error(check.error ?? "Python 3 is not available.");
+    throw new Error(check.error ?? "Python 3.10+ is not available.");
   }
 
   if (!check.ytmusicapiAvailable) {
     throw new Error(
       check.error ??
-        "ytmusicapi is not installed. Run: python3 -m pip install ytmusicapi"
+        "The bundled ytmusicapi package is missing. Reinstall CorosLink or run npm run binaries:prepare."
     );
   }
 
@@ -489,8 +489,18 @@ async function requireYtMusicApi(): Promise<
 async function findPythonCommand(): Promise<string | undefined> {
   for (const command of PYTHON_COMMANDS) {
     try {
-      await execFileAsync(command, ["--version"], { timeout: 5000 });
-      return command;
+      const { stdout } = await execFileAsync(
+        command,
+        [
+          "-c",
+          "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
+        ],
+        { timeout: 5000 }
+      );
+      const [major, minor] = stdout.trim().split(".").map(Number);
+      if (major > 3 || (major === 3 && minor >= 10)) {
+        return command;
+      }
     } catch {
       // Try the next candidate.
     }
@@ -512,7 +522,8 @@ async function runBridge(
       pythonCommand,
       ["-c", YTMUSICAPI_BRIDGE_SCRIPT, command, ...args],
       {
-        stdio: ["pipe", "pipe", "pipe"]
+        stdio: ["pipe", "pipe", "pipe"],
+        env: buildPythonBridgeEnv()
       }
     );
     const stdout: Buffer[] = [];
@@ -547,6 +558,56 @@ async function runBridge(
 
     child.stdin.end(input ?? "");
   });
+}
+
+function buildPythonBridgeEnv(): NodeJS.ProcessEnv {
+  const bundledPackagePath = getBundledPythonPackagePath();
+  if (!bundledPackagePath) {
+    return process.env;
+  }
+
+  return {
+    ...process.env,
+    PYTHONPATH: process.env.PYTHONPATH
+      ? `${bundledPackagePath}${path.delimiter}${process.env.PYTHONPATH}`
+      : bundledPackagePath
+  };
+}
+
+function getBundledPythonPackagePath(): string | undefined {
+  const platformDirectory = `${process.platform}-${process.arch}`;
+  const basePaths = [
+    process.resourcesPath,
+    app.getAppPath(),
+    process.cwd()
+  ].filter(Boolean);
+
+  for (const basePath of basePaths) {
+    const candidates = [
+      path.join(basePath, "bin", platformDirectory, "python"),
+      path.join(basePath, "bin", "python")
+    ];
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function formatYtMusicApiCheckError(error: unknown): string {
+  const message = toErrorMessage(error);
+  if (
+    message.includes("No module named 'ytmusicapi'") ||
+    message.includes('No module named "ytmusicapi"')
+  ) {
+    return "The bundled ytmusicapi package is missing. Reinstall CorosLink or run npm run binaries:prepare.";
+  }
+
+  return message;
 }
 
 function createYouTubeMusicLibrary(

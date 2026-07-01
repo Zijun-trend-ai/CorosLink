@@ -40,10 +40,6 @@ import type {
   AppUpdateSnapshot,
   WatchConnectionSmokeOptionId,
   WatchStatus,
-  YouTubeDataConfig,
-  YouTubeDataPlaylist,
-  YouTubeDataPlaylistItem,
-  YouTubeDataStatus,
   YouTubeHistoryEntry,
   YouTubeMusicConfig,
   YouTubeMusicLibrary,
@@ -113,24 +109,6 @@ const api = {
   },
   resetYouTubeBrowserSession: (): Promise<void> =>
     ipcRenderer.invoke("youtube:resetSession"),
-  getYouTubeDataConfig: (): Promise<YouTubeDataConfig> =>
-    ipcRenderer.invoke("youtubeData:getConfig"),
-  saveYouTubeDataConfig: (
-    config: YouTubeDataConfig
-  ): Promise<YouTubeDataStatus> =>
-    ipcRenderer.invoke("youtubeData:saveConfig", config),
-  getYouTubeDataStatus: (): Promise<YouTubeDataStatus> =>
-    ipcRenderer.invoke("youtubeData:getStatus"),
-  loginYouTubeData: (): Promise<YouTubeDataStatus> =>
-    ipcRenderer.invoke("youtubeData:login"),
-  logoutYouTubeData: (): Promise<YouTubeDataStatus> =>
-    ipcRenderer.invoke("youtubeData:logout"),
-  listYouTubeDataPlaylists: (): Promise<YouTubeDataPlaylist[]> =>
-    ipcRenderer.invoke("youtubeData:listPlaylists"),
-  listYouTubeDataPlaylistItems: (
-    playlistId: string
-  ): Promise<YouTubeDataPlaylistItem[]> =>
-    ipcRenderer.invoke("youtubeData:listPlaylistItems", playlistId),
   getYouTubeMusicConfig: (): Promise<YouTubeMusicConfig> =>
     ipcRenderer.invoke("youtubeMusic:getConfig"),
   saveYouTubeMusicConfig: (

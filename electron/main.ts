@@ -77,7 +77,6 @@ import type {
   TrainingHubActivity,
   TrainingHubActivityFileType,
   WatchConnectionSmokeOptionId,
-  YouTubeDataConfig,
   YouTubeMusicConfig
 } from "./types";
 import {
@@ -98,15 +97,6 @@ import {
   getYouTubeHistory,
   saveYouTubeVisit
 } from "./youtubeService";
-import {
-  getYouTubeDataConfig,
-  getYouTubeDataStatus,
-  listYouTubeDataPlaylistItems,
-  listYouTubeDataPlaylists,
-  loginYouTubeData,
-  logoutYouTubeData,
-  saveYouTubeDataConfig
-} from "./youtubeDataService";
 import {
   logoutYouTubeMusic,
   getYouTubeMusicConfig,
@@ -338,28 +328,6 @@ function registerIpcHandlers(): void {
   );
 
   ipcMain.handle("youtube:resetSession", () => resetYouTubeBrowserSession());
-
-  ipcMain.handle("youtubeData:getConfig", () => getYouTubeDataConfig());
-
-  ipcMain.handle(
-    "youtubeData:saveConfig",
-    (_event, config: YouTubeDataConfig) => saveYouTubeDataConfig(config)
-  );
-
-  ipcMain.handle("youtubeData:getStatus", () => getYouTubeDataStatus());
-
-  ipcMain.handle("youtubeData:login", () => loginYouTubeData());
-
-  ipcMain.handle("youtubeData:logout", () => logoutYouTubeData());
-
-  ipcMain.handle("youtubeData:listPlaylists", () =>
-    listYouTubeDataPlaylists()
-  );
-
-  ipcMain.handle(
-    "youtubeData:listPlaylistItems",
-    (_event, playlistId: string) => listYouTubeDataPlaylistItems(playlistId)
-  );
 
   ipcMain.handle("youtubeMusic:getConfig", () => getYouTubeMusicConfig());
 

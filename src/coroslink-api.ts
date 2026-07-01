@@ -39,10 +39,6 @@ import type {
   AppUpdateSnapshot,
   WatchConnectionSmokeOptionId,
   WatchStatus,
-  YouTubeDataConfig,
-  YouTubeDataPlaylist,
-  YouTubeDataPlaylistItem,
-  YouTubeDataStatus,
   YouTubeHistoryEntry,
   YouTubeMusicConfig,
   YouTubeMusicLibrary,
@@ -87,17 +83,6 @@ export interface CorosLinkApi {
     callback: (jobs: DownloadJob[]) => void
   ) => () => void;
   resetYouTubeBrowserSession: () => Promise<void>;
-  getYouTubeDataConfig: () => Promise<YouTubeDataConfig>;
-  saveYouTubeDataConfig: (
-    config: YouTubeDataConfig
-  ) => Promise<YouTubeDataStatus>;
-  getYouTubeDataStatus: () => Promise<YouTubeDataStatus>;
-  loginYouTubeData: () => Promise<YouTubeDataStatus>;
-  logoutYouTubeData: () => Promise<YouTubeDataStatus>;
-  listYouTubeDataPlaylists: () => Promise<YouTubeDataPlaylist[]>;
-  listYouTubeDataPlaylistItems: (
-    playlistId: string
-  ) => Promise<YouTubeDataPlaylistItem[]>;
   getYouTubeMusicConfig: () => Promise<YouTubeMusicConfig>;
   saveYouTubeMusicConfig: (
     config: YouTubeMusicConfig

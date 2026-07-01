@@ -157,43 +157,6 @@ export interface YouTubeHistoryEntry {
   downloadedAt?: string;
 }
 
-export interface YouTubeDataConfig {
-  clientId: string;
-  clientSecret: string;
-  redirectUri: string;
-}
-
-export interface YouTubeDataStatus {
-  configured: boolean;
-  authenticated: boolean;
-  redirectUri: string;
-  displayName?: string;
-  channelId?: string;
-  tokenExpiresAt?: string;
-}
-
-export interface YouTubeDataPlaylist {
-  id: string;
-  title: string;
-  description?: string;
-  channelId?: string;
-  channelTitle?: string;
-  publishedAt?: string;
-  thumbnailUrl?: string;
-  totalItems: number;
-}
-
-export interface YouTubeDataPlaylistItem {
-  id: string;
-  playlistId: string;
-  videoId: string;
-  title: string;
-  channelTitle?: string;
-  publishedAt?: string;
-  thumbnailUrl?: string;
-  videoUrl: string;
-}
-
 export interface YouTubeMusicStatus {
   configured: boolean;
   pythonAvailable: boolean;
