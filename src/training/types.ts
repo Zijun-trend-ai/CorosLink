@@ -73,6 +73,7 @@ export interface TrainingHubViewProps {
   status: TrainingHubStatus | null;
   email: string;
   password: string;
+  remember: boolean;
   activities: TrainingHubActivity[];
   upcomingWorkouts: TrainingHubUpcomingWorkout[];
   snapshot: TrainingHubSnapshot | null;
@@ -83,6 +84,7 @@ export interface TrainingHubViewProps {
   busy: string | null;
   onEmailChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
+  onRememberChange: (value: boolean) => void;
   onLogin: (event: FormEvent<HTMLFormElement>) => void;
   onLogout: () => void;
   onRefresh: () => void;

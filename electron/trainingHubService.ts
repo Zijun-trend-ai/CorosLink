@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { safeStorage } from "electron";
 import {
   deleteSettings,
   getSetting,
@@ -67,7 +68,8 @@ const SETTINGS = {
   accessToken: "trainingHub.accessToken",
   userId: "trainingHub.userId",
   regionId: "trainingHub.regionId",
-  baseUrl: "trainingHub.baseUrl"
+  baseUrl: "trainingHub.baseUrl",
+  credentials: "trainingHub.credentials"
 };
 
 interface TrainingHubAuthState {
@@ -75,6 +77,11 @@ interface TrainingHubAuthState {
   userId: string;
   regionId: string;
   baseUrl: string;
+}
+
+interface StoredTrainingHubCredentials {
+  account: string;
+  pwdHash: string;
 }
 
 interface TrainingHubApiResponse<T> {
@@ -178,18 +185,22 @@ interface TrainingHubFileUrlData {
 
 export function getTrainingHubStatus(): TrainingHubStatus {
   const auth = getStoredAuth();
+  const credentials = getStoredCredentials();
 
   return {
     authenticated: Boolean(auth),
     userId: auth?.userId,
     regionId: auth?.regionId,
-    baseUrl: auth?.baseUrl
+    baseUrl: auth?.baseUrl,
+    rememberCredentials: Boolean(credentials),
+    email: credentials?.account
   };
 }
 
 export async function loginTrainingHub(
   email: string,
-  password: string
+  password: string,
+  remember = false
 ): Promise<TrainingHubStatus> {
   const account = email.trim();
   if (!account || !password) {
@@ -199,12 +210,22 @@ export async function loginTrainingHub(
   const pwdHash = crypto.createHash("md5").update(password).digest("hex");
   const session = await establishTrainingHubSession(account, pwdHash);
 
+  persistTrainingHubSession(session);
+
+  if (remember) {
+    storeCredentials(account, pwdHash);
+  } else {
+    clearStoredCredentials();
+  }
+
+  return getTrainingHubStatus();
+}
+
+function persistTrainingHubSession(session: TrainingHubAuthState): void {
   setSetting(SETTINGS.accessToken, session.accessToken);
   setSetting(SETTINGS.userId, session.userId);
   setSetting(SETTINGS.regionId, session.regionId);
   setSetting(SETTINGS.baseUrl, session.baseUrl);
-
-  return getTrainingHubStatus();
 }
 
 async function establishTrainingHubSession(
@@ -335,6 +356,7 @@ async function queryTrainingHubAccount(
 
 export function logoutTrainingHub(): TrainingHubStatus {
   clearTrainingHubAuth();
+  clearStoredCredentials();
   return getTrainingHubStatus();
 }
 
@@ -3214,8 +3236,7 @@ async function trainingHubRequest<T>(
     );
     if (resolvedBaseUrl === auth.baseUrl) {
       if (retryReason === "token") {
-        clearTrainingHubAuth();
-        throw new Error("COROS session expired. Log in again.");
+        return recoverExpiredTrainingHubSession<T>(path, options);
       }
 
       throw error;
@@ -3231,13 +3252,27 @@ async function trainingHubRequest<T>(
       );
     } catch (retryError) {
       if (retryReason === "token") {
-        clearTrainingHubAuth();
-        throw new Error("COROS session expired. Log in again.");
+        return recoverExpiredTrainingHubSession<T>(path, options);
       }
 
       throw retryError;
     }
   }
+}
+
+async function recoverExpiredTrainingHubSession<T>(
+  path: string,
+  options: RequestInit & {
+    params?: Record<string, string | number>;
+  }
+): Promise<T> {
+  const refreshed = await reauthenticateFromStoredCredentials();
+  if (!refreshed) {
+    clearTrainingHubAuth();
+    throw new Error("COROS session expired. Log in again.");
+  }
+
+  return executeTrainingHubRequest<T>(refreshed, path, options);
 }
 
 async function executeTrainingHubRequest<T>(
@@ -3376,8 +3411,9 @@ async function fetchJson<T>(
   const result = String(payload.result ?? payload.apiCode ?? "");
 
   if (AUTH_ERROR_CODES.has(result)) {
-    clearTrainingHubAuth();
-    throw new Error("COROS session expired. Log in again.");
+    throw new InvalidTrainingHubTokenError(
+      payload.message || "COROS session expired."
+    );
   }
 
   if (result !== RESULT_SUCCESS) {
@@ -3427,4 +3463,64 @@ function clearTrainingHubAuth(): void {
     SETTINGS.regionId,
     SETTINGS.baseUrl
   ]);
+}
+
+function storeCredentials(account: string, pwdHash: string): boolean {
+  if (!safeStorage.isEncryptionAvailable()) {
+    return false;
+  }
+
+  try {
+    const blob = JSON.stringify({
+      account,
+      pwdHash
+    } satisfies StoredTrainingHubCredentials);
+    const encrypted = safeStorage.encryptString(blob).toString("base64");
+    setSetting(SETTINGS.credentials, encrypted);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getStoredCredentials(): StoredTrainingHubCredentials | null {
+  const encoded = getSetting(SETTINGS.credentials);
+  if (!encoded || !safeStorage.isEncryptionAvailable()) {
+    return null;
+  }
+
+  try {
+    const decrypted = safeStorage.decryptString(
+      Buffer.from(encoded, "base64")
+    );
+    const parsed = JSON.parse(decrypted) as StoredTrainingHubCredentials;
+    if (!parsed.account || !parsed.pwdHash) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function clearStoredCredentials(): void {
+  deleteSettings([SETTINGS.credentials]);
+}
+
+async function reauthenticateFromStoredCredentials(): Promise<TrainingHubAuthState | null> {
+  const credentials = getStoredCredentials();
+  if (!credentials) {
+    return null;
+  }
+
+  try {
+    const session = await establishTrainingHubSession(
+      credentials.account,
+      credentials.pwdHash
+    );
+    persistTrainingHubSession(session);
+    return session;
+  } catch {
+    return null;
+  }
 }

@@ -118,7 +118,8 @@ export interface CorosLinkApi {
   getTrainingHubStatus: () => Promise<TrainingHubStatus>;
   loginTrainingHub: (
     email: string,
-    password: string
+    password: string,
+    remember: boolean
   ) => Promise<TrainingHubStatus>;
   logoutTrainingHub: () => Promise<TrainingHubStatus>;
   listTrainingHubActivities: (

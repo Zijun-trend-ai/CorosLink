@@ -152,6 +152,7 @@ export default function App() {
     useState<TrainingHubStatus | null>(null);
   const [trainingHubEmail, setTrainingHubEmail] = useState("");
   const [trainingHubPassword, setTrainingHubPassword] = useState("");
+  const [trainingHubRemember, setTrainingHubRemember] = useState(true);
   const [trainingHubActivities, setTrainingHubActivities] = useState<
     TrainingHubActivity[]
   >([]);
@@ -354,6 +355,11 @@ export default function App() {
 
     const status = await api.getTrainingHubStatus();
     setTrainingHubStatus(status);
+
+    if (status.email) {
+      setTrainingHubEmail(status.email);
+    }
+    setTrainingHubRemember(status.rememberCredentials ?? true);
 
     if (status.authenticated) {
       await loadTrainingHubData();
@@ -850,6 +856,7 @@ export default function App() {
       const status = await api.loginTrainingHub(
         trainingHubEmail,
         trainingHubPassword,
+        trainingHubRemember,
       );
       setTrainingHubStatus(status);
       setTrainingHubPassword("");
@@ -1506,6 +1513,7 @@ export default function App() {
                 status={trainingHubStatus}
                 email={trainingHubEmail}
                 password={trainingHubPassword}
+                remember={trainingHubRemember}
                 activities={trainingHubActivities}
                 upcomingWorkouts={trainingHubUpcomingWorkouts}
                 snapshot={trainingHubSnapshot}
@@ -1516,6 +1524,7 @@ export default function App() {
                 busy={busy}
                 onEmailChange={setTrainingHubEmail}
                 onPasswordChange={setTrainingHubPassword}
+                onRememberChange={setTrainingHubRemember}
                 onLogin={handleTrainingHubLogin}
                 onLogout={handleTrainingHubLogout}
                 onRefresh={handleTrainingHubRefresh}

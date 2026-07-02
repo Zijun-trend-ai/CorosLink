@@ -517,6 +517,8 @@ export interface TrainingHubStatus {
   userId?: string;
   regionId?: string;
   baseUrl?: string;
+  rememberCredentials?: boolean;
+  email?: string;
 }
 
 export type TrainingHubActivityFileType = 0 | 1 | 2 | 3 | 4 | 5 | 6;

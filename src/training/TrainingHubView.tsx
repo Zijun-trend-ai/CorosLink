@@ -1,15 +1,20 @@
-import { useMemo, useState } from "react";
+import { type CSSProperties, useMemo, useState } from "react";
 import {
   Activity,
+  ArrowRightFromLine,
+  ChartNoAxesColumnIncreasing,
   Database,
   Eye,
   EyeOff,
+  ExternalLink,
   Globe2,
+  LockKeyhole,
   Loader2,
-  LogIn,
   LogOut,
+  Mail,
   Monitor,
   ShieldCheck,
+  Trophy,
   User,
   RefreshCw
 } from "lucide-react";
@@ -26,11 +31,13 @@ import { TrainingZoneDistributionCharts } from "./components/TrainingZoneDistrib
 import { UpcomingWorkoutsPanel } from "./components/UpcomingWorkoutsPanel";
 import { Vo2MaxWidget } from "./components/Vo2MaxWidget";
 import type { TrainingHubViewProps } from "./types";
+import loginPageBackground from "../../public/assets/training-hub/Login-page-bg.png";
 
 export function TrainingHubView({
   status,
   email,
   password,
+  remember,
   activities,
   upcomingWorkouts,
   snapshot,
@@ -41,6 +48,7 @@ export function TrainingHubView({
   busy,
   onEmailChange,
   onPasswordChange,
+  onRememberChange,
   onLogin,
   onLogout,
   onRefresh,
@@ -49,6 +57,12 @@ export function TrainingHubView({
 }: TrainingHubViewProps) {
   const connected = Boolean(status?.authenticated);
   const [showConnectionDetails, setShowConnectionDetails] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const signInBackgroundStyle = connected
+    ? undefined
+    : ({
+        "--training-signin-bg": `url(${loginPageBackground})`
+      } as CSSProperties);
   const activityCountLabel = `${activities.length} recent ${
     activities.length === 1 ? "activity" : "activities"
   }`;
@@ -71,6 +85,7 @@ export function TrainingHubView({
         className={`panel training-command-center ${
           connected ? "is-connected is-compact" : "is-disconnected"
         }`}
+        style={signInBackgroundStyle}
       >
         {connected ? (
           <div className="training-connection-shell">
@@ -148,64 +163,163 @@ export function TrainingHubView({
         ) : (
           <>
             <div className="training-command-copy">
-              <div className="training-command-kicker">
-                <span className="training-status-dot" aria-hidden="true" />
-                <p className="eyebrow">Training Hub</p>
+              <div className="training-signin-copy-inner">
+                <div className="training-command-kicker">
+                  <Monitor size={18} aria-hidden="true" />
+                  <p className="eyebrow">Training Hub</p>
+                </div>
+                <h2>
+                  <span>COROS</span>
+                  <span>
+                    <em>Training</em> Hub
+                  </span>
+                </h2>
+                <p className="training-signin-lead">
+                  Desktop access to training load, recovery, activity detail, and
+                  race readiness.
+                </p>
+
+                <div className="training-signin-feature-list">
+                  <div className="training-signin-feature">
+                    <span className="training-signin-feature-icon">
+                      <ChartNoAxesColumnIncreasing size={24} aria-hidden="true" />
+                    </span>
+                    <div>
+                      <strong>Deep Insights</strong>
+                      <p>
+                        Track recovery, training load, VO2 max, and more with
+                        advanced analytics.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="training-signin-feature">
+                    <span className="training-signin-feature-icon">
+                      <Trophy size={24} aria-hidden="true" />
+                    </span>
+                    <div>
+                      <strong>All Your Data</strong>
+                      <p>
+                        Sync activities, view PRs, and analyze performance over
+                        time.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="training-signin-feature">
+                    <span className="training-signin-feature-icon">
+                      <ShieldCheck size={24} aria-hidden="true" />
+                    </span>
+                    <div>
+                      <strong>Secure &amp; Private</strong>
+                      <p>
+                        Remembered credentials are encrypted and stored locally
+                        on this device.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
               </div>
-              <h2>Connect COROS Training Hub</h2>
-              <p>
-                Review recovery, race predictions, activity detail, and fitness
-                trends on a larger, easier-to-scan desktop surface.
-              </p>
             </div>
+
             <form className="training-login-panel" onSubmit={onLogin}>
-            <div className="training-login-panel-header">
-              <div className="training-login-icon">
-                <Monitor size={20} aria-hidden="true" />
+              <div className="training-login-panel-header">
+                <strong>Welcome back</strong>
+                <p>Sign in to access your COROS Training Hub data</p>
               </div>
-              <div>
-                <span>Desktop analytics</span>
-                <strong>Sign in to load your latest COROS fitness data.</strong>
-              </div>
-            </div>
 
-            <div className="training-login-fields">
-              <label className="field">
-                <span>Email</span>
+              <div className="training-login-fields">
+                <label className="field training-login-field">
+                  <span>Email</span>
+                  <div className="training-login-input">
+                    <Mail size={18} aria-hidden="true" />
+                    <input
+                      value={email}
+                      onChange={(event) => onEmailChange(event.target.value)}
+                      placeholder="you@example.com"
+                      type="email"
+                      autoComplete="username"
+                      disabled={busy === "training-login"}
+                    />
+                  </div>
+                </label>
+                <label className="field training-login-field">
+                  <span>Password</span>
+                  <div className="training-login-input">
+                    <LockKeyhole size={18} aria-hidden="true" />
+                    <input
+                      value={password}
+                      onChange={(event) => onPasswordChange(event.target.value)}
+                      placeholder="COROS password"
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="current-password"
+                      disabled={busy === "training-login"}
+                    />
+                    <button
+                      className="training-login-visibility"
+                      type="button"
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      onClick={() => setShowPassword((current) => !current)}
+                      disabled={busy === "training-login"}
+                    >
+                      {showPassword ? (
+                        <EyeOff size={17} aria-hidden="true" />
+                      ) : (
+                        <Eye size={17} aria-hidden="true" />
+                      )}
+                    </button>
+                  </div>
+                </label>
+              </div>
+
+              <label className="training-login-remember">
                 <input
-                  value={email}
-                  onChange={(event) => onEmailChange(event.target.value)}
-                  placeholder="COROS account email"
-                  type="email"
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(event) => onRememberChange(event.target.checked)}
                   disabled={busy === "training-login"}
                 />
+                <span>
+                  Remember me
+                  <small>
+                    Securely stores your COROS credentials on this device so
+                    CorosLink can sign back in automatically.
+                  </small>
+                </span>
               </label>
-              <label className="field">
-                <span>Password</span>
-                <input
-                  value={password}
-                  onChange={(event) => onPasswordChange(event.target.value)}
-                  placeholder="COROS password"
-                  type="password"
-                  disabled={busy === "training-login"}
-                />
-              </label>
-            </div>
 
-            <div className="settings-actions training-login-actions">
-              <button
-                className="primary-button"
-                type="submit"
-                disabled={!email.trim() || !password || busy === "training-login"}
+              <div className="settings-actions training-login-actions">
+                <button
+                  className="primary-button"
+                  type="submit"
+                  disabled={!email.trim() || !password || busy === "training-login"}
+                >
+                  {busy === "training-login" ? (
+                    <Loader2 className="spin" size={17} aria-hidden="true" />
+                  ) : (
+                    <ArrowRightFromLine size={17} aria-hidden="true" />
+                  )}
+                  Sign in to COROS
+                </button>
+              </div>
+
+              <div className="training-login-divider">
+                <span>or</span>
+              </div>
+
+              <a
+                className="training-login-browser-link"
+                href="https://t.coros.com/"
+                target="_blank"
+                rel="noreferrer"
               >
-                {busy === "training-login" ? (
-                  <Loader2 className="spin" size={17} aria-hidden="true" />
-                ) : (
-                  <LogIn size={17} aria-hidden="true" />
-                )}
-                Log in
-              </button>
-            </div>
+                <ExternalLink size={16} aria-hidden="true" />
+                Open COROS Training Hub in Browser
+              </a>
+
+              <p className="training-login-footer">
+                <ShieldCheck size={16} aria-hidden="true" />
+                Your credentials are encrypted and never shared.
+              </p>
             </form>
           </>
         )}

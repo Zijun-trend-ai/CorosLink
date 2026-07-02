@@ -175,9 +175,10 @@ const api = {
     ipcRenderer.invoke("trainingHub:getStatus"),
   loginTrainingHub: (
     email: string,
-    password: string
+    password: string,
+    remember: boolean
   ): Promise<TrainingHubStatus> =>
-    ipcRenderer.invoke("trainingHub:login", email, password),
+    ipcRenderer.invoke("trainingHub:login", email, password, remember),
   logoutTrainingHub: (): Promise<TrainingHubStatus> =>
     ipcRenderer.invoke("trainingHub:logout"),
   listTrainingHubActivities: (
