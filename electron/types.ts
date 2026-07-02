@@ -466,6 +466,9 @@ export interface SpotifyPlaylist {
   totalTracks: number;
   snapshotId: string;
   syncable: boolean;
+  description?: string;
+  artworkUrl?: string;
+  url?: string;
 }
 
 export interface SpotifyPlaylistTrack {
@@ -477,6 +480,7 @@ export interface SpotifyPlaylistTrack {
   addedAt?: string;
   filename: string;
   query: string;
+  artworkUrl?: string;
 }
 
 export type SpotifySyncTrackStatus =

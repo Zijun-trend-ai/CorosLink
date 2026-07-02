@@ -125,6 +125,38 @@ export async function loginSpotify(
   return getSpotifyStatus();
 }
 
+function pickImageUrl(
+  images: SpotifyApi.ImageObject[] | undefined,
+  edge: "largest" | "smallest"
+): string | undefined {
+  if (!images || images.length === 0) {
+    return undefined;
+  }
+
+  const withDimensions = images.filter((image) => Boolean(image?.url));
+  if (withDimensions.length === 0) {
+    return undefined;
+  }
+
+  const sorted = [...withDimensions].sort(
+    (left, right) => (right.width ?? 0) - (left.width ?? 0)
+  );
+  const chosen = edge === "largest" ? sorted[0] : sorted[sorted.length - 1];
+  return chosen.url;
+}
+
+function largestImageUrl(
+  images: SpotifyApi.ImageObject[] | undefined
+): string | undefined {
+  return pickImageUrl(images, "largest");
+}
+
+function smallestImageUrl(
+  images: SpotifyApi.ImageObject[] | undefined
+): string | undefined {
+  return pickImageUrl(images, "smallest");
+}
+
 export async function listSpotifyPlaylists(): Promise<SpotifyPlaylist[]> {
   const api = await getAuthorizedSpotifyApi();
   const profile = await api.getMe();
@@ -151,7 +183,10 @@ export async function listSpotifyPlaylists(): Promise<SpotifyPlaylist[]> {
         public: playlist.public,
         totalTracks: playlistLike.items?.total ?? playlist.tracks?.total ?? 0,
         snapshotId: playlist.snapshot_id,
-        syncable: playlist.owner.id === userId || playlist.collaborative
+        syncable: playlist.owner.id === userId || playlist.collaborative,
+        description: playlist.description || undefined,
+        artworkUrl: largestImageUrl(playlist.images),
+        url: playlist.external_urls?.spotify
       });
     }
 
@@ -195,7 +230,8 @@ export async function listSpotifyPlaylistTracks(
         durationMs: track.duration_ms,
         addedAt: item.added_at,
         filename: `${sanitizeFileBaseName(`${artistName} - ${trackName}`)}.mp3`,
-        query: `${artistName} ${trackName} official audio`
+        query: `${artistName} ${trackName} official audio`,
+        artworkUrl: smallestImageUrl(track.album?.images)
       });
     }
 

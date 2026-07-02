@@ -57,10 +57,6 @@ export function RecoveryRing({ summary }: RecoveryRingProps) {
     <section className={`panel training-ring-panel tone-${tone}`}>
       <div className="training-ring-header">
         <p className="eyebrow">Recovery</p>
-        <span className="training-live-pill">
-          <span className="training-live-dot" aria-hidden="true" />
-          Live
-        </span>
       </div>
 
       <div className="training-ring-content">

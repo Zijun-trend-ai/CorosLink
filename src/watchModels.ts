@@ -14,6 +14,13 @@ export type WatchPresentationState =
   | "connected-known"
   | "connected-unknown";
 
+export type WatchFeatureIcon = "display" | "weight" | "battery";
+
+export interface WatchFeature {
+  icon: WatchFeatureIcon;
+  label: string;
+}
+
 export interface WatchPresentation {
   state: WatchPresentationState;
   model?: WatchModelId;
@@ -24,6 +31,9 @@ export interface WatchPresentation {
   heroAlt?: string;
   capacityLabel?: string;
   fallbackBytes?: number;
+  productName?: string;
+  tagline?: string;
+  features?: WatchFeature[];
 }
 
 const DISCONNECTED_PRESENTATION: WatchPresentation = {
@@ -48,45 +58,73 @@ const MODEL_PRESENTATION: Record<
     state: "connected-known",
     model: "pace-pro",
     displayName: "COROS Pace Pro",
+    productName: "Pace Pro",
+    tagline: "Crafted for Performance",
     companion: "Your Pace Pro companion",
     connectHint: "",
     heroImage: paceProHero,
     heroAlt: "COROS Pace Pro",
     capacityLabel: "32 GB Pace Pro capacity fallback",
     fallbackBytes: PACE_PRO_BYTES,
+    features: [
+      { icon: "display", label: "Bright AMOLED Display" },
+      { icon: "weight", label: "38g Ultralight Design" },
+      { icon: "battery", label: "38 Hours Full GPS" },
+    ],
   },
   "pace-4": {
     state: "connected-known",
     model: "pace-4",
     displayName: "COROS Pace 4",
+    productName: "Pace 4",
+    tagline: "Train Without Limits",
     companion: "Your Pace 4 companion",
     connectHint: "",
     heroImage: pace4Hero,
     heroAlt: "COROS Pace 4",
     capacityLabel: "4 GB Pace 4 capacity fallback",
     fallbackBytes: PACE_4_BYTES,
+    features: [
+      { icon: "display", label: "Bright AMOLED Display" },
+      { icon: "weight", label: "Lightweight Build" },
+      { icon: "battery", label: "38 Hours Full GPS" },
+    ],
   },
   "pace-3": {
     state: "connected-known",
     model: "pace-3",
     displayName: "COROS Pace 3",
+    productName: "Pace 3",
+    tagline: "Built to Go the Distance",
     companion: "Your Pace 3 companion",
     connectHint: "",
     heroImage: pace3Hero,
     heroAlt: "COROS Pace 3",
     capacityLabel: "4 GB Pace 3 capacity fallback",
     fallbackBytes: PACE_3_BYTES,
+    features: [
+      { icon: "display", label: "Always-On MIP Display" },
+      { icon: "weight", label: "39g Lightweight Build" },
+      { icon: "battery", label: "38 Hours Full GPS" },
+    ],
   },
   nomad: {
     state: "connected-known",
     model: "nomad",
     displayName: "COROS Nomad",
+    productName: "Nomad",
+    tagline: "Ready for Any Adventure",
     companion: "Your Nomad companion",
     connectHint: "",
     heroImage: nomadHero,
     heroAlt: "COROS Nomad",
     capacityLabel: "32 GB Nomad capacity fallback",
     fallbackBytes: NOMAD_BYTES,
+    features: [
+      { icon: "display", label: "Bright AMOLED Display" },
+      { icon: "weight", label: "Rugged Trail Build" },
+      { icon: "battery", label: "Multi-Day GPS Battery" },
+    ],
   },
 };
 

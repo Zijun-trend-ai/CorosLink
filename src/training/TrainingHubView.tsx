@@ -216,14 +216,12 @@ export function TrainingHubView({
           <section className="training-intelligence">
             <div className="training-intelligence-header">
               <p className="eyebrow">Training Intelligence</p>
-              <span
-                className={`training-sync-pill${
-                  busy === "training-refresh" ? " is-syncing" : ""
-                }`}
-              >
-                <span className="training-sync-dot" aria-hidden="true" />
-                {busy === "training-refresh" ? "Syncing data" : "Live"}
-              </span>
+              {busy === "training-refresh" ? (
+                <span className="training-sync-pill is-syncing">
+                  <span className="training-sync-dot" aria-hidden="true" />
+                  Syncing data
+                </span>
+              ) : null}
             </div>
             <div className="training-intelligence-grid">
               <RecoveryRing summary={summary} />
