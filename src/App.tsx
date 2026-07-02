@@ -3,8 +3,11 @@ import {
   AlertCircle,
   ArrowLeft,
   ArrowRight,
+  BatteryFull,
   CheckCircle2,
   Download,
+  ExternalLink,
+  Feather,
   FolderOpen,
   HardDrive,
   Home,
@@ -16,10 +19,10 @@ import {
   Loader2,
   Map as MapIcon,
   Music,
-  Music2,
   RefreshCw,
   Search,
   Settings,
+  Sparkles,
   Trash2,
   Upload,
   Watch,
@@ -42,8 +45,6 @@ import type {
   SpotifyPlaylist,
   SpotifyPlaylistTrack,
   SpotifyStatus,
-  SpotifySyncTrack,
-  SpotifySyncUpdate,
   TrainingHubActivity,
   TrainingHubActivityDetail,
   TrainingHubActivityFileType,
@@ -83,7 +84,11 @@ import {
   isLocalTrackOnWatch,
 } from "./media/libraryUtils";
 import { useTimeOfDayGreeting } from "./hooks/useTimeOfDayGreeting";
-import { getWatchPresentation } from "./watchModels";
+import {
+  getWatchPresentation,
+  type WatchFeatureIcon,
+  type WatchPresentation,
+} from "./watchModels";
 import appLogo from "../build/icon.png";
 
 type View = "overview" | "media" | "training" | "maps";
@@ -129,10 +134,6 @@ export default function App() {
   const [spotifyTracks, setSpotifyTracks] = useState<SpotifyPlaylistTrack[]>(
     [],
   );
-  const [spotifySyncTracks, setSpotifySyncTracks] = useState<
-    SpotifySyncTrack[]
-  >([]);
-  const [spotifyAutoTransfer, setSpotifyAutoTransfer] = useState(false);
   const [youtubeUrl, setYoutubeUrl] = useState(YOUTUBE_HOME_URL);
   const [youtubeInput, setYoutubeInput] = useState("");
   const [youtubeCurrentUrl, setYoutubeCurrentUrl] = useState(YOUTUBE_HOME_URL);
@@ -246,7 +247,6 @@ export default function App() {
       setSpotifyPlaylists([]);
       setSelectedSpotifyPlaylistId("");
       setSpotifyTracks([]);
-      setSpotifySyncTracks([]);
     }
   }, [api]);
 
@@ -448,18 +448,6 @@ export default function App() {
       return;
     }
 
-    return api.onSpotifySyncUpdate((update: SpotifySyncUpdate) => {
-      setSpotifySyncTracks((current) =>
-        mergeSpotifySyncUpdate(current, update),
-      );
-    });
-  }, [api]);
-
-  useEffect(() => {
-    if (!api) {
-      return;
-    }
-
     void api
       .listYouTubeJobs()
       .then((jobs: DownloadJob[]) => {
@@ -645,16 +633,11 @@ export default function App() {
     setError(null);
 
     try {
-      const [tracks, syncState] = await Promise.all([
-        api.listSpotifyPlaylistTracks(playlistId),
-        api.listSpotifySyncState(playlistId),
-      ]);
+      const tracks = await api.listSpotifyPlaylistTracks(playlistId);
       setSpotifyTracks(tracks);
-      setSpotifySyncTracks(syncState);
     } catch (caught) {
       setError(toErrorMessage(caught));
       setSpotifyTracks([]);
-      setSpotifySyncTracks([]);
     } finally {
       setBusy(null);
     }
@@ -739,7 +722,6 @@ export default function App() {
       setSpotifyStatus(await api.logoutSpotify());
       setSpotifyPlaylists([]);
       setSpotifyTracks([]);
-      setSpotifySyncTracks([]);
       setSelectedSpotifyPlaylistId("");
       setMessage("Spotify account disconnected.");
     } catch (caught) {
@@ -763,32 +745,6 @@ export default function App() {
       setYoutubeMusicPlaylists([]);
       setSelectedYouTubeMusicPlaylistId("");
       setMessage("YouTube Music disconnected.");
-    } catch (caught) {
-      setError(toErrorMessage(caught));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function handleSpotifySync() {
-    if (!api || !selectedSpotifyPlaylistId) {
-      return;
-    }
-
-    setBusy("spotify-sync");
-    setError(null);
-    setMessage(null);
-
-    try {
-      const result = await api.syncSpotifyPlaylist(
-        selectedSpotifyPlaylistId,
-        spotifyAutoTransfer,
-      );
-      setSpotifySyncTracks(result.tracks);
-      setMessage(
-        `Spotify sync finished: ${result.completed} done, ${result.failed} failed.`,
-      );
-      await refreshAll();
     } catch (caught) {
       setError(toErrorMessage(caught));
     } finally {
@@ -1320,6 +1276,11 @@ export default function App() {
     setActiveMediaTab(tab);
   }
 
+  const { toasts, dismissToast } = useToaster(
+    message,
+    error ?? watchStatus?.error ?? null,
+  );
+
   return (
     <div className="app">
       <header className="app-header">
@@ -1433,8 +1394,6 @@ export default function App() {
           <BridgeMissing />
         ) : (
           <>
-            <Feedback message={message} error={error ?? watchStatus?.error} />
-
             {activeView === "overview" ? (
               <MediaOverviewTab
                 url={url}
@@ -1520,20 +1479,18 @@ export default function App() {
                     playlists={spotifyPlaylists}
                     selectedPlaylistId={selectedSpotifyPlaylistId}
                     tracks={spotifyTracks}
-                    syncTracks={spotifySyncTracks}
-                    autoTransfer={spotifyAutoTransfer}
                     busy={busy}
-                    watchConnected={Boolean(watchStatus?.connected)}
                     onConfigChange={setSpotifyConfig}
                     onConfigSubmit={handleSpotifyConfigSubmit}
                     onLogin={handleSpotifyLogin}
                     onLogout={handleSpotifyLogout}
                     onSelectPlaylist={setSelectedSpotifyPlaylistId}
-                    onAutoTransferChange={setSpotifyAutoTransfer}
-                    onSync={handleSpotifySync}
+                    onRefresh={refreshSpotify}
+                    onMessage={setMessage}
+                    onError={setError}
                   />
                 ) : (
-                  <AppleMusicView />
+                  <AppleMusicView onMessage={setMessage} onError={setError} />
                 )}
               </MediaView>
             ) : activeView === "maps" ? (
@@ -1569,6 +1526,8 @@ export default function App() {
           </>
         )}
       </main>
+
+      <Toaster toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
@@ -1594,7 +1553,7 @@ function MediaView({ activeTab, onTabChange, children }: MediaViewProps) {
     {
       id: "youtube-music",
       label: "YouTube Music",
-      icon: <Music2 size={16} aria-hidden="true" />,
+      icon: <YouTubeMusicBrandIcon size={16} />,
     },
     {
       id: "spotify",
@@ -1704,6 +1663,53 @@ function MetricTile({ label, value, detail, icon, onClick }: MetricTileProps) {
   }
 
   return <section className="metric-tile">{content}</section>;
+}
+
+const WATCH_FEATURE_ICONS: Record<
+  WatchFeatureIcon,
+  (props: { size?: number }) => ReactNode
+> = {
+  display: ({ size = 17 }) => <Sparkles size={size} aria-hidden="true" />,
+  weight: ({ size = 17 }) => <Feather size={size} aria-hidden="true" />,
+  battery: ({ size = 17 }) => <BatteryFull size={size} aria-hidden="true" />,
+};
+
+function ProductHero({ presentation }: { presentation: WatchPresentation }) {
+  const productName = presentation.productName ?? presentation.displayName;
+
+  return (
+    <section className="dashboard-hero dashboard-hero--product panel">
+      <div className="dashboard-hero-copy">
+        <span className="dashboard-hero-brand">COROS</span>
+        <h2 className="dashboard-hero-model">{productName}</h2>
+        {presentation.tagline ? (
+          <p className="dashboard-hero-tagline">{presentation.tagline}</p>
+        ) : null}
+        {presentation.features && presentation.features.length > 0 ? (
+          <ul className="dashboard-hero-features">
+            {presentation.features.map((feature) => {
+              const Icon = WATCH_FEATURE_ICONS[feature.icon];
+              return (
+                <li key={feature.label}>
+                  <span className="dashboard-hero-feature-icon">
+                    <Icon size={16} />
+                  </span>
+                  {feature.label}
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+      </div>
+      {presentation.heroImage ? (
+        <img
+          src={presentation.heroImage}
+          alt={presentation.heroAlt ?? ""}
+          className="dashboard-hero-image"
+        />
+      ) : null}
+    </section>
+  );
 }
 
 interface RecentTrackListProps {
@@ -1852,16 +1858,15 @@ function MediaOverviewTab({
     [downloads],
   );
   const watchPresentation = getWatchPresentation(watchStatus);
-  const statusEyebrow =
-    watchPresentation.state === "disconnected"
-      ? "Watch"
-      : watchPresentation.displayName;
   const statusTitle =
     watchPresentation.state === "disconnected"
       ? "Not connected"
       : watchPresentation.state === "connected-known"
         ? watchPresentation.displayName
         : (watchStatus?.name ?? "Connected");
+  const showProductHero =
+    watchPresentation.state === "connected-known" &&
+    Boolean(watchPresentation.heroImage);
 
   return (
     <div className="dashboard">
@@ -1889,26 +1894,40 @@ function MediaOverviewTab({
         className={[
           "dashboard-hero-row",
           "dashboard-block",
-          !watchPresentation.heroImage && "dashboard-hero-row--no-hero",
+          !showProductHero && "dashboard-hero-row--no-hero",
         ]
           .filter(Boolean)
           .join(" ")}
       >
-        {watchPresentation.heroImage ? (
-          <section className="dashboard-hero panel">
-            <img
-              src={watchPresentation.heroImage}
-              alt={watchPresentation.heroAlt ?? ""}
-              className="dashboard-hero-image"
-            />
-          </section>
+        {showProductHero ? (
+          <ProductHero presentation={watchPresentation} />
         ) : null}
 
         <section className="dashboard-status panel">
           <div className="dashboard-status-header">
-            <div>
-              <p className="eyebrow">{statusEyebrow}</p>
-              <h2>{statusTitle}</h2>
+            <div className="dashboard-status-lead">
+              <div
+                className={`watch-status-icon${watchConnected ? " connected" : ""}`}
+                aria-hidden="true"
+              >
+                <Watch size={26} />
+                <span className="watch-status-badge">
+                  {watchConnected ? (
+                    <CheckCircle2 size={13} strokeWidth={2.5} />
+                  ) : (
+                    <X size={12} strokeWidth={3} />
+                  )}
+                </span>
+              </div>
+              <div>
+                <p className="eyebrow">Watch connection</p>
+                <h2>{statusTitle}</h2>
+                {!(watchConnected && storage) ? (
+                  <p className="dashboard-status-hint">
+                    {watchPresentation.connectHint}
+                  </p>
+                ) : null}
+              </div>
             </div>
             <div
               className={`connection-pill${watchConnected ? " connected" : ""}`}
@@ -1933,9 +1952,7 @@ function MediaOverviewTab({
                   : ` · ${formatBytes(storage.totalBytes)} capacity`}
               </p>
             </>
-          ) : (
-            <p className="connect-hint">{watchPresentation.connectHint}</p>
-          )}
+          ) : null}
         </section>
       </div>
 
@@ -2933,17 +2950,15 @@ interface SpotifySyncViewProps {
   playlists: SpotifyPlaylist[];
   selectedPlaylistId: string;
   tracks: SpotifyPlaylistTrack[];
-  syncTracks: SpotifySyncTrack[];
-  autoTransfer: boolean;
   busy: string | null;
-  watchConnected: boolean;
   onConfigChange: (config: SpotifyConfig) => void;
   onConfigSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onLogin: () => void;
   onLogout: () => void;
   onSelectPlaylist: (playlistId: string) => void;
-  onAutoTransferChange: (value: boolean) => void;
-  onSync: () => void;
+  onRefresh: () => void | Promise<void>;
+  onMessage: (message: string) => void;
+  onError: (message: string) => void;
 }
 
 interface YouTubeMusicViewProps {
@@ -3018,7 +3033,7 @@ function YouTubeMusicView({
               className="spotify-account-mark youtube-music-account-mark"
               aria-hidden="true"
             >
-              <Music2 size={22} />
+              <YouTubeMusicBrandIcon size={24} />
             </div>
             <div className="spotify-account-copy">
               <p className="eyebrow">YouTube Music</p>
@@ -3044,7 +3059,7 @@ function YouTubeMusicView({
                 ) : (
                   <RefreshCw size={17} aria-hidden="true" />
                 )}
-                Sync
+                Refresh
               </button>
               <button
                 className="secondary-button"
@@ -3062,10 +3077,10 @@ function YouTubeMusicView({
             </div>
           </div>
         ) : (
-          <div className="youtube-music-connect">
+          <div className="youtube-music-connect youtube-music-connect--youtube">
             <div className="youtube-music-connect-header">
               <div className="youtube-music-connect-mark" aria-hidden="true">
-                <Music2 size={26} />
+                <YouTubeMusicBrandIcon size={28} />
               </div>
               <div className="youtube-music-connect-intro">
                 <p className="eyebrow">YouTube Music</p>
@@ -3189,68 +3204,173 @@ function YouTubeMusicView({
       ) : null}
 
       {status?.authenticated && playlists.length > 0 ? (
-      <section className="spotify-layout youtube-music-layout">
-        <aside className="panel playlist-panel">
-          <div className="section-heading compact">
-            <div>
-              <p className="eyebrow">Playlists</p>
-              <h2>{playlists.length}</h2>
+        <section className="spotify-layout youtube-music-layout">
+          <aside className="panel playlist-panel youtube-music-playlist-panel">
+            <div className="section-heading compact playlist-heading">
+              <h2>Playlists</h2>
+              <span className="count-pill">{playlists.length}</span>
             </div>
-          </div>
-          <div className="playlist-list">
-            {playlists.map((playlist) => (
-              <button
-                key={playlist.id}
-                className={
-                  playlist.id === selectedPlaylist?.id
-                    ? "playlist-button active"
-                    : "playlist-button"
-                }
-                type="button"
-                onClick={() => onSelectPlaylist(playlist.id)}
-              >
-                <strong>{playlist.title}</strong>
-                <span>
-                  {playlist.songCount} song
-                  {playlist.songCount === 1 ? "" : "s"}
-                </span>
-              </button>
-            ))}
-          </div>
-        </aside>
+            <div className="playlist-list">
+              {playlists.map((playlist) => (
+                <button
+                  key={playlist.id}
+                  className={
+                    playlist.id === selectedPlaylist?.id
+                      ? "playlist-button youtube-music-playlist-button active"
+                      : "playlist-button youtube-music-playlist-button"
+                  }
+                  type="button"
+                  onClick={() => onSelectPlaylist(playlist.id)}
+                >
+                  <YouTubeMusicArtwork
+                    className="youtube-music-playlist-thumb"
+                    thumbnailUrl={playlist.thumbnailUrl}
+                  />
+                  <span className="youtube-music-playlist-copy">
+                    <strong>{playlist.title}</strong>
+                    <span>
+                      {playlist.songCount} song
+                      {playlist.songCount === 1 ? "" : "s"}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </aside>
 
-        <section className="panel panel-flex">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Playlist</p>
-              <h2>{selectedPlaylist?.title ?? "Select a playlist"}</h2>
-            </div>
-            <div className="topbar-actions">
-              <button
-                className="primary-button"
-                type="button"
-                disabled={!selectedPlaylist}
-                onClick={() =>
-                  selectedPlaylist && onQueuePlaylist(selectedPlaylist)
-                }
-              >
-                <Download size={17} aria-hidden="true" />
-                Queue playlist
-              </button>
-            </div>
-          </div>
-
-          <YouTubeMusicSongTable
-            songs={selectedPlaylist?.songs ?? []}
-            jobsByVideoId={jobsByVideoId}
-            onQueueSong={onQueueSong}
-            onRetrySong={onRetrySong}
-            onOpenSong={onOpenSong}
-          />
+          <section className="panel panel-flex youtube-music-detail-panel">
+            {selectedPlaylist ? (
+              <YouTubeMusicPlaylistDetail
+                playlist={selectedPlaylist}
+                jobsByVideoId={jobsByVideoId}
+                onQueuePlaylist={onQueuePlaylist}
+                onQueueSong={onQueueSong}
+                onRetrySong={onRetrySong}
+                onOpenSong={onOpenSong}
+              />
+            ) : (
+              <EmptyState title="Select a playlist to load its songs" />
+            )}
+          </section>
         </section>
-      </section>
       ) : null}
     </div>
+  );
+}
+
+interface YouTubeMusicPlaylistDetailProps {
+  playlist: YouTubeMusicPlaylist;
+  jobsByVideoId: Map<string, DownloadJob>;
+  onQueuePlaylist: (playlist: YouTubeMusicPlaylist) => void;
+  onQueueSong: (song: YouTubeMusicSong) => void;
+  onRetrySong: (song: YouTubeMusicSong, jobId: string) => void;
+  onOpenSong: (song: YouTubeMusicSong) => void;
+}
+
+function YouTubeMusicPlaylistDetail({
+  playlist,
+  jobsByVideoId,
+  onQueuePlaylist,
+  onQueueSong,
+  onRetrySong,
+  onOpenSong,
+}: YouTubeMusicPlaylistDetailProps) {
+  return (
+    <>
+      <div className="youtube-music-playlist-header">
+        {playlist.thumbnailUrl ? (
+          <img
+            className="youtube-music-playlist-backdrop"
+            src={playlist.thumbnailUrl}
+            alt=""
+            aria-hidden="true"
+          />
+        ) : null}
+        <YouTubeMusicArtwork
+          className="youtube-music-playlist-art"
+          thumbnailUrl={playlist.thumbnailUrl}
+        />
+        <div className="youtube-music-playlist-meta">
+          <p className="eyebrow">YouTube Music Playlist</p>
+          <h3>{playlist.title}</h3>
+          <span>
+            {playlist.songCount} song{playlist.songCount === 1 ? "" : "s"}
+          </span>
+          {playlist.description ? <p>{playlist.description}</p> : null}
+          {playlist.playlistId ? (
+            <a
+              className="service-open-link youtube-music-open-link"
+              href={`https://music.youtube.com/playlist?list=${playlist.playlistId}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <YouTubeMusicBrandIcon size={15} />
+              Open in YouTube Music
+              <ExternalLink size={13} aria-hidden="true" />
+            </a>
+          ) : null}
+        </div>
+        {playlist.songs.length > 0 ? (
+          <button
+            className="primary-button youtube-music-queue-all"
+            type="button"
+            onClick={() => onQueuePlaylist(playlist)}
+          >
+            <Download size={17} aria-hidden="true" />
+            Download all
+          </button>
+        ) : null}
+      </div>
+
+      <YouTubeMusicSongTable
+        songs={playlist.songs}
+        jobsByVideoId={jobsByVideoId}
+        onQueueSong={onQueueSong}
+        onRetrySong={onRetrySong}
+        onOpenSong={onOpenSong}
+      />
+    </>
+  );
+}
+
+function YouTubeMusicBrandIcon({
+  size = 24,
+  className,
+}: {
+  size?: number;
+  className?: string;
+}) {
+  return (
+    <svg
+      className={className}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M12 0C5.376 0 0 5.376 0 12s5.376 12 12 12 12-5.376 12-12S18.624 0 12 0zm0 19.104c-3.924 0-7.104-3.18-7.104-7.104S8.076 4.896 12 4.896s7.104 3.18 7.104 7.104-3.18 7.104-7.104 7.104zm0-13.332c-3.432 0-6.228 2.796-6.228 6.228S8.568 18.228 12 18.228s6.228-2.796 6.228-6.228S15.432 5.772 12 5.772zM9.684 15.54V8.46L15.816 12l-6.132 3.54z" />
+    </svg>
+  );
+}
+
+function YouTubeMusicArtwork({
+  thumbnailUrl,
+  className,
+}: {
+  thumbnailUrl?: string;
+  className: string;
+}) {
+  return thumbnailUrl ? (
+    <img className={className} src={thumbnailUrl} alt="" />
+  ) : (
+    <span
+      className={`${className} youtube-music-art-fallback`}
+      aria-hidden="true"
+    >
+      <YouTubeMusicBrandIcon size={22} />
+    </span>
   );
 }
 
@@ -3278,6 +3398,7 @@ function YouTubeMusicSongTable({
       <table>
         <thead>
           <tr>
+            <th>#</th>
             <th>Song</th>
             <th>Album</th>
             <th>Download</th>
@@ -3285,7 +3406,7 @@ function YouTubeMusicSongTable({
           </tr>
         </thead>
         <tbody>
-          {songs.map((song) => {
+          {songs.map((song, index) => {
             const job = song.videoId
               ? jobsByVideoId.get(song.videoId)
               : undefined;
@@ -3296,9 +3417,18 @@ function YouTubeMusicSongTable({
             const completed = job?.status === "completed";
             return (
               <tr key={song.id}>
+                <td>{index + 1}</td>
                 <td>
-                  <strong>{song.songTitle}</strong>
-                  <span>{song.artistName ?? "Unknown Artist"}</span>
+                  <div className="youtube-music-track-cell">
+                    <YouTubeMusicArtwork
+                      className="youtube-music-track-art"
+                      thumbnailUrl={song.thumbnailUrl}
+                    />
+                    <span className="youtube-music-track-copy">
+                      <strong>{song.songTitle}</strong>
+                      <span>{song.artistName ?? "Unknown Artist"}</span>
+                    </span>
+                  </div>
                 </td>
                 <td>{song.albumTitle ?? "Unknown Album"}</td>
                 <td>
@@ -3415,58 +3545,133 @@ function SpotifySyncView({
   playlists,
   selectedPlaylistId,
   tracks,
-  syncTracks,
-  autoTransfer,
   busy,
-  watchConnected,
   onConfigChange,
   onConfigSubmit,
   onLogin,
   onLogout,
   onSelectPlaylist,
-  onAutoTransferChange,
-  onSync,
+  onRefresh,
+  onMessage,
+  onError,
 }: SpotifySyncViewProps) {
+  const api = window.corosLink;
+  const [jobs, setJobs] = useState<DownloadJob[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
   const selectedPlaylist = playlists.find(
     (playlist) => playlist.id === selectedPlaylistId,
   );
-  const syncByTrackId = useMemo(
-    () => new Map(syncTracks.map((track) => [track.spotifyTrackId, track])),
-    [syncTracks],
-  );
-  const canSync =
-    Boolean(status?.authenticated && selectedPlaylist?.syncable) &&
-    busy !== "spotify-sync";
+
+  useEffect(() => {
+    if (!api) {
+      return;
+    }
+    void api
+      .listYouTubeJobs()
+      .then(setJobs)
+      .catch(() => {});
+    return api.onYouTubeJobsUpdate(setJobs);
+  }, [api]);
+
+  const jobByUrl = useMemo(() => {
+    const map = new Map<string, DownloadJob>();
+    for (const job of jobs) {
+      if (job.entryType !== "playlist") {
+        map.set(job.url, job);
+      }
+    }
+    return map;
+  }, [jobs]);
+
+  async function enqueueTargets(targets: DownloadQueueItem[]) {
+    if (!api || targets.length === 0) {
+      return;
+    }
+    try {
+      const created = await api.enqueueYouTubeDownloads(targets);
+      onMessage(
+        created.length === 0
+          ? "Those tracks are already queued."
+          : `Queued ${created.length} download${created.length === 1 ? "" : "s"}. They run in the background.`,
+      );
+    } catch (caught) {
+      onError(toErrorMessage(caught));
+    }
+  }
+
+  async function handleQueueTrack(track: SpotifyPlaylistTrack) {
+    await enqueueTargets([spotifyDownloadTarget(track)]);
+  }
+
+  async function handleQueueAllTracks(playlistTracks: SpotifyPlaylistTrack[]) {
+    await enqueueTargets(playlistTracks.map(spotifyDownloadTarget));
+  }
+
+  async function handleRetryTrack(track: SpotifyPlaylistTrack, jobId: string) {
+    if (!api) {
+      return;
+    }
+    try {
+      setJobs(await api.clearYouTubeJob(jobId));
+    } catch {
+      // The job may already be gone; re-queue regardless.
+    }
+    await handleQueueTrack(track);
+  }
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   return (
     <div className="stack stack-fill">
       <section className="panel spotify-account-panel">
         {status?.authenticated ? (
           <div className="spotify-account-card">
-            <div className="spotify-account-mark" aria-hidden="true">
-              <ListMusic size={22} />
+            <div className="spotify-account-mark spotify-brand-mark" aria-hidden="true">
+              <SpotifyBrandIcon size={26} />
             </div>
             <div className="spotify-account-copy">
-              <p className="eyebrow">Spotify account</p>
+              <p className="eyebrow">Spotify</p>
               <h2>{status.displayName ?? "Connected"}</h2>
               <span>
                 {playlists.length} playlist{playlists.length === 1 ? "" : "s"}{" "}
                 available
               </span>
             </div>
-            <button
-              className="secondary-button"
-              type="button"
-              disabled={busy === "spotify-logout"}
-              onClick={onLogout}
-            >
-              {busy === "spotify-logout" ? (
-                <Loader2 className="spin" size={17} aria-hidden="true" />
-              ) : (
-                <LogOut size={17} aria-hidden="true" />
-              )}
-              Disconnect
-            </button>
+            <div className="topbar-actions">
+              <button
+                className="primary-button"
+                type="button"
+                disabled={refreshing}
+                onClick={() => void handleRefresh()}
+              >
+                {refreshing ? (
+                  <Loader2 className="spin" size={17} aria-hidden="true" />
+                ) : (
+                  <RefreshCw size={17} aria-hidden="true" />
+                )}
+                Refresh
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={busy === "spotify-logout"}
+                onClick={onLogout}
+              >
+                {busy === "spotify-logout" ? (
+                  <Loader2 className="spin" size={17} aria-hidden="true" />
+                ) : (
+                  <LogOut size={17} aria-hidden="true" />
+                )}
+                Disconnect
+              </button>
+            </div>
           </div>
         ) : (
           <>
@@ -3538,152 +3743,278 @@ function SpotifySyncView({
         )}
       </section>
 
-      <section className="spotify-layout">
-        <aside className="panel playlist-panel">
-          <div className="section-heading compact">
-            <div>
-              <p className="eyebrow">Playlists</p>
-              <h2>{playlists.length}</h2>
+      {status?.authenticated ? (
+        <section className="spotify-layout spotify-library-layout">
+          <aside className="panel playlist-panel spotify-playlist-panel">
+            <div className="section-heading compact playlist-heading">
+              <h2>Playlists</h2>
+              <span className="count-pill">{playlists.length}</span>
             </div>
-          </div>
-          <div className="playlist-list">
-            {playlists.length === 0 ? (
-              <EmptyState title="No playlists loaded" />
+            <div className="playlist-list">
+              {playlists.length === 0 ? (
+                <EmptyState title="No playlists loaded" />
+              ) : (
+                playlists.map((playlist) => (
+                  <button
+                    key={playlist.id}
+                    className={
+                      playlist.id === selectedPlaylistId
+                        ? "playlist-button spotify-playlist-button active"
+                        : "playlist-button spotify-playlist-button"
+                    }
+                    type="button"
+                    disabled={!playlist.syncable}
+                    onClick={() => onSelectPlaylist(playlist.id)}
+                  >
+                    <SpotifyArtwork
+                      className="spotify-playlist-thumb"
+                      artworkUrl={playlist.artworkUrl}
+                    />
+                    <span className="spotify-playlist-copy">
+                      <strong>{playlist.name}</strong>
+                      <span>
+                        {playlist.totalTracks} track
+                        {playlist.totalTracks === 1 ? "" : "s"} ·{" "}
+                        {playlist.syncable ? "Ready" : "Unavailable"}
+                      </span>
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          </aside>
+
+          <section className="panel panel-flex spotify-detail-panel">
+            {selectedPlaylist ? (
+              <SpotifyPlaylistDetail
+                playlist={selectedPlaylist}
+                tracks={tracks}
+                jobByUrl={jobByUrl}
+                loading={busy?.startsWith("spotify-load") ?? false}
+                onQueueAll={() => void handleQueueAllTracks(tracks)}
+                onQueueTrack={(track) => void handleQueueTrack(track)}
+                onRetryTrack={(track, jobId) =>
+                  void handleRetryTrack(track, jobId)
+                }
+              />
             ) : (
-              playlists.map((playlist) => (
-                <button
-                  key={playlist.id}
-                  className={
-                    playlist.id === selectedPlaylistId
-                      ? "playlist-button active"
-                      : "playlist-button"
-                  }
-                  type="button"
-                  disabled={!playlist.syncable}
-                  onClick={() => onSelectPlaylist(playlist.id)}
-                >
-                  <strong>{playlist.name}</strong>
-                  <span>
-                    {playlist.totalTracks} track(s) ·{" "}
-                    {playlist.syncable ? "Ready" : "Unavailable"}
-                  </span>
-                </button>
-              ))
+              <EmptyState title="Select a playlist to load its tracks" />
             )}
-          </div>
-        </aside>
-
-        <section className="panel panel-flex">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">
-                {selectedPlaylist ? selectedPlaylist.ownerName : "Playlist"}
-              </p>
-              <h2>{selectedPlaylist?.name ?? "Select a playlist"}</h2>
-            </div>
-            <div className="topbar-actions">
-              <label className="check-row compact-check">
-                <input
-                  type="checkbox"
-                  checked={autoTransfer}
-                  disabled={!watchConnected}
-                  onChange={(event) =>
-                    onAutoTransferChange(event.target.checked)
-                  }
-                />
-                Auto-transfer
-              </label>
-              <button
-                className="primary-button"
-                type="button"
-                disabled={!canSync}
-                onClick={onSync}
-              >
-                {busy === "spotify-sync" ? (
-                  <Loader2 className="spin" size={17} aria-hidden="true" />
-                ) : (
-                  <RefreshCw size={17} aria-hidden="true" />
-                )}
-                Re-sync
-              </button>
-            </div>
-          </div>
-
-          <SpotifyTrackTable
-            tracks={tracks}
-            syncByTrackId={syncByTrackId}
-            loading={busy?.startsWith("spotify-load") ?? false}
-          />
+          </section>
         </section>
-      </section>
+      ) : null}
     </div>
   );
 }
 
-interface SpotifyTrackTableProps {
+interface SpotifyPlaylistDetailProps {
+  playlist: SpotifyPlaylist;
   tracks: SpotifyPlaylistTrack[];
-  syncByTrackId: Map<string, SpotifySyncTrack>;
+  jobByUrl: Map<string, DownloadJob>;
   loading: boolean;
+  onQueueAll: () => void;
+  onQueueTrack: (track: SpotifyPlaylistTrack) => void;
+  onRetryTrack: (track: SpotifyPlaylistTrack, jobId: string) => void;
 }
 
-function SpotifyTrackTable({
+function SpotifyPlaylistDetail({
+  playlist,
   tracks,
-  syncByTrackId,
+  jobByUrl,
   loading,
-}: SpotifyTrackTableProps) {
-  if (loading) {
-    return (
-      <div className="empty-state">
-        <Loader2 className="spin" size={24} aria-hidden="true" />
-        <strong>Loading playlist</strong>
-      </div>
-    );
-  }
-
-  if (tracks.length === 0) {
-    return <EmptyState title="No tracks selected" />;
-  }
-
+  onQueueAll,
+  onQueueTrack,
+  onRetryTrack,
+}: SpotifyPlaylistDetailProps) {
   return (
-    <div className="table-shell">
-      <table>
-        <thead>
-          <tr>
-            <th>Track</th>
-            <th>Filename</th>
-            <th>Status</th>
-            <th>Local File</th>
-          </tr>
-        </thead>
-        <tbody>
-          {tracks.map((track) => {
-            const syncTrack = syncByTrackId.get(track.spotifyTrackId);
-            return (
-              <tr key={track.spotifyTrackId}>
-                <td>
-                  <strong>{track.trackName}</strong>
-                  <span>{track.artistName}</span>
-                </td>
-                <td>{syncTrack?.filename ?? track.filename}</td>
-                <td>
-                  <span className={syncStatusClass(syncTrack?.status)}>
-                    {syncTrack?.status ?? "queued"}
-                  </span>
-                  {syncTrack?.error ? <span>{syncTrack.error}</span> : null}
-                </td>
-                <td>
-                  {syncTrack?.filePath ? (
-                    <span>{syncTrack.filePath}</span>
-                  ) : (
-                    <span>{track.query}</span>
-                  )}
-                </td>
+    <>
+      <div className="spotify-playlist-header">
+        {playlist.artworkUrl ? (
+          <img
+            className="spotify-playlist-backdrop"
+            src={playlist.artworkUrl}
+            alt=""
+            aria-hidden="true"
+          />
+        ) : null}
+        <SpotifyArtwork
+          className="spotify-playlist-art"
+          artworkUrl={playlist.artworkUrl}
+        />
+        <div className="spotify-playlist-meta">
+          <p className="eyebrow">Spotify Playlist</p>
+          <h3>{playlist.name}</h3>
+          <span>
+            {playlist.ownerName ? `${playlist.ownerName} · ` : ""}
+            {playlist.totalTracks} track{playlist.totalTracks === 1 ? "" : "s"}
+          </span>
+          {playlist.description ? <p>{playlist.description}</p> : null}
+          {playlist.url ? (
+            <a
+              className="service-open-link spotify-open-link"
+              href={playlist.url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <SpotifyBrandIcon size={15} />
+              Open in Spotify
+              <ExternalLink size={13} aria-hidden="true" />
+            </a>
+          ) : null}
+        </div>
+        {tracks.length > 0 ? (
+          <button
+            className="primary-button spotify-download-all"
+            type="button"
+            onClick={onQueueAll}
+          >
+            <Download size={17} aria-hidden="true" />
+            Download all
+          </button>
+        ) : null}
+      </div>
+
+      {loading ? (
+        <div className="spotify-track-loading">
+          <Loader2 className="spin" size={24} aria-hidden="true" />
+          <strong>Loading playlist</strong>
+        </div>
+      ) : tracks.length === 0 ? (
+        <EmptyState title="No tracks in this playlist" />
+      ) : (
+        <div className="table-shell">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Title</th>
+                <th>Album</th>
+                <th>Duration</th>
+                <th>Download</th>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+            </thead>
+            <tbody>
+              {tracks.map((track, index) => {
+                const target = spotifyDownloadTarget(track);
+                const job = jobByUrl.get(target.sourceUrl);
+                const downloadStatus = youtubeMusicDownloadStatus(job);
+                const inProgress =
+                  job?.status === "queued" || job?.status === "downloading";
+                const failed = job?.status === "failed";
+                const completed = job?.status === "completed";
+                return (
+                  <tr key={track.spotifyTrackId}>
+                    <td>{index + 1}</td>
+                    <td>
+                      <div className="spotify-track-cell">
+                        <SpotifyArtwork
+                          className="spotify-track-art"
+                          artworkUrl={track.artworkUrl}
+                        />
+                        <span className="spotify-track-copy">
+                          <strong>{track.trackName}</strong>
+                          <span>{track.artistName}</span>
+                        </span>
+                      </div>
+                    </td>
+                    <td>{track.albumName ?? "—"}</td>
+                    <td>{formatTrackDuration(track.durationMs)}</td>
+                    <td>
+                      <div className="table-actions">
+                        <span className={downloadStatus.className}>
+                          {downloadStatus.label}
+                        </span>
+                        {failed && job ? (
+                          <button
+                            className="icon-button"
+                            type="button"
+                            title="Retry download"
+                            aria-label={`Retry ${track.trackName}`}
+                            onClick={() => onRetryTrack(track, job.id)}
+                          >
+                            <RefreshCw size={16} aria-hidden="true" />
+                          </button>
+                        ) : inProgress ? (
+                          <button
+                            className="icon-button"
+                            type="button"
+                            title="Downloading"
+                            disabled
+                          >
+                            <Loader2
+                              className="spin"
+                              size={16}
+                              aria-hidden="true"
+                            />
+                          </button>
+                        ) : completed ? (
+                          <button
+                            className="icon-button"
+                            type="button"
+                            title="Downloaded"
+                            disabled
+                          >
+                            <CheckCircle2 size={16} aria-hidden="true" />
+                          </button>
+                        ) : (
+                          <button
+                            className="icon-button"
+                            type="button"
+                            title="Download"
+                            aria-label={`Download ${track.trackName}`}
+                            onClick={() => onQueueTrack(track)}
+                          >
+                            <Download size={16} aria-hidden="true" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+function SpotifyArtwork({
+  artworkUrl,
+  className,
+}: {
+  artworkUrl?: string;
+  className: string;
+}) {
+  return artworkUrl ? (
+    <img className={className} src={artworkUrl} alt="" />
+  ) : (
+    <span className={`${className} spotify-art-fallback`} aria-hidden="true">
+      <SpotifyBrandIcon size={22} />
+    </span>
+  );
+}
+
+function SpotifyBrandIcon({
+  size = 24,
+  className,
+}: {
+  size?: number;
+  className?: string;
+}) {
+  return (
+    <svg
+      className={className}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.42 1.56-.299.421-1.02.599-1.559.3z" />
+    </svg>
   );
 }
 
@@ -3836,25 +4167,129 @@ function WatchTrackTable({
   );
 }
 
-function Feedback({
-  message,
-  error,
+interface ToastItem {
+  id: number;
+  kind: "success" | "error";
+  text: string;
+}
+
+const TOAST_DURATION: Record<ToastItem["kind"], number> = {
+  success: 4500,
+  error: 7000,
+};
+
+// Drives the floating toast stack from the app's existing message/error state,
+// so every setMessage/setError call surfaces as an auto-dismissing toast
+// instead of a banner that shoves the layout down.
+function useToaster(message: string | null, error: string | null) {
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const nextIdRef = useRef(0);
+  const timersRef = useRef(new Map<number, number>());
+  const lastMessageRef = useRef<string | null>(null);
+  const lastErrorRef = useRef<string | null>(null);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+    const timer = timersRef.current.get(id);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      timersRef.current.delete(id);
+    }
+  }, []);
+
+  const pushToast = useCallback(
+    (kind: ToastItem["kind"], text: string) => {
+      const id = (nextIdRef.current += 1);
+      setToasts((current) => [...current.slice(-2), { id, kind, text }]);
+      const timer = window.setTimeout(
+        () => dismissToast(id),
+        TOAST_DURATION[kind],
+      );
+      timersRef.current.set(id, timer);
+    },
+    [dismissToast],
+  );
+
+  // Refs guard against StrictMode's double-invoke and repeated identical values
+  // (e.g. a polled watch error) while still re-toasting after the source clears.
+  useEffect(() => {
+    if (message && message !== lastMessageRef.current) {
+      pushToast("success", message);
+    }
+    lastMessageRef.current = message;
+  }, [message, pushToast]);
+
+  useEffect(() => {
+    if (error && error !== lastErrorRef.current) {
+      pushToast("error", error);
+    }
+    lastErrorRef.current = error;
+  }, [error, pushToast]);
+
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
+
+  return { toasts, dismissToast };
+}
+
+function Toaster({
+  toasts,
+  onDismiss,
 }: {
-  message: string | null;
-  error?: string | null;
+  toasts: ToastItem[];
+  onDismiss: (id: number) => void;
 }) {
-  if (!message && !error) {
+  if (toasts.length === 0) {
     return null;
   }
 
   return (
-    <div className={error ? "feedback error" : "feedback"}>
-      {error ? (
-        <AlertCircle size={18} aria-hidden="true" />
-      ) : (
-        <CheckCircle2 size={18} aria-hidden="true" />
-      )}
-      <span>{error ?? message}</span>
+    <div className="toast-stack" role="region" aria-label="Notifications">
+      {toasts.map((toast) => (
+        <ToastCard key={toast.id} toast={toast} onDismiss={onDismiss} />
+      ))}
+    </div>
+  );
+}
+
+function ToastCard({
+  toast,
+  onDismiss,
+}: {
+  toast: ToastItem;
+  onDismiss: (id: number) => void;
+}) {
+  return (
+    <div
+      className={`toast toast--${toast.kind}`}
+      role={toast.kind === "error" ? "alert" : "status"}
+    >
+      <span className="toast-icon" aria-hidden="true">
+        {toast.kind === "error" ? (
+          <AlertCircle size={18} />
+        ) : (
+          <CheckCircle2 size={18} />
+        )}
+      </span>
+      <span className="toast-text">{toast.text}</span>
+      <button
+        className="toast-close"
+        type="button"
+        aria-label="Dismiss notification"
+        onClick={() => onDismiss(toast.id)}
+      >
+        <X size={15} aria-hidden="true" />
+      </button>
+      <span
+        className="toast-progress"
+        style={{ animationDuration: `${TOAST_DURATION[toast.kind]}ms` }}
+        aria-hidden="true"
+      />
     </div>
   );
 }
@@ -3880,7 +4315,13 @@ function EmptyState({ title }: { title: string }) {
   );
 }
 
-function AppleMusicView() {
+function AppleMusicView({
+  onMessage,
+  onError,
+}: {
+  onMessage: (message: string) => void;
+  onError: (message: string) => void;
+}) {
   const api = window.corosLink;
   const [status, setStatus] = useState<AppleMusicStatus | null>(null);
   const [headersRaw, setHeadersRaw] = useState("");
@@ -3898,8 +4339,23 @@ function AppleMusicView() {
     null,
   );
   const [jobs, setJobs] = useState<DownloadJob[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  // Route feedback through the global toast stack instead of an inline banner.
+  const setError = useCallback(
+    (value: string | null) => {
+      if (value) {
+        onError(value);
+      }
+    },
+    [onError],
+  );
+  const setNotice = useCallback(
+    (value: string | null) => {
+      if (value) {
+        onMessage(value);
+      }
+    },
+    [onMessage],
+  );
 
   const loadPlaylistDetail = useCallback(
     async (id: string) => {
@@ -4133,6 +4589,21 @@ function AppleMusicView() {
               </span>
             </div>
             <div className="topbar-actions">
+              {status.hasUserToken ? (
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={busy === "list"}
+                  onClick={() => void refreshPlaylists()}
+                >
+                  {busy === "list" ? (
+                    <Loader2 className="spin" size={17} aria-hidden="true" />
+                  ) : (
+                    <RefreshCw size={17} aria-hidden="true" />
+                  )}
+                  Refresh
+                </button>
+              ) : null}
               <button
                 className="secondary-button"
                 type="button"
@@ -4149,9 +4620,12 @@ function AppleMusicView() {
             </div>
           </div>
         ) : (
-          <div className="youtube-music-connect">
+          <div className="youtube-music-connect youtube-music-connect--apple">
             <div className="youtube-music-connect-header">
-              <div className="youtube-music-connect-mark" aria-hidden="true">
+              <div
+                className="youtube-music-connect-mark apple-music-connect-mark"
+                aria-hidden="true"
+              >
                 <AppleBrandIcon size={28} />
               </div>
               <div className="youtube-music-connect-intro">
@@ -4238,8 +4712,6 @@ function AppleMusicView() {
         )}
       </section>
 
-      <Feedback message={notice} error={error} />
-
       {status?.authenticated && !status.hasUserToken ? (
         <section className="panel youtube-music-empty">
           <div className="empty-state">
@@ -4283,24 +4755,9 @@ function AppleMusicView() {
         ) : (
           <section className="spotify-layout apple-music-layout">
             <aside className="panel playlist-panel apple-music-playlist-panel">
-              <div className="section-heading compact">
-                <div>
-                  <p className="eyebrow">Playlists</p>
-                  <h2>{playlists.length}</h2>
-                </div>
-                <button
-                  className="secondary-button icon-button"
-                  type="button"
-                  disabled={busy === "list"}
-                  onClick={() => void refreshPlaylists()}
-                  aria-label="Refresh playlists"
-                >
-                  {busy === "list" ? (
-                    <Loader2 className="spin" size={16} aria-hidden="true" />
-                  ) : (
-                    <RefreshCw size={16} aria-hidden="true" />
-                  )}
-                </button>
+              <div className="section-heading compact playlist-heading">
+                <h2>Playlists</h2>
+                <span className="count-pill">{playlists.length}</span>
               </div>
               <div className="playlist-list">
                 {playlists.map((entry) => (
@@ -4397,8 +4854,15 @@ function AppleMusicPlaylistDetail({
           </span>
           {playlist.description ? <p>{playlist.description}</p> : null}
           {playlist.url ? (
-            <a href={playlist.url} target="_blank" rel="noreferrer">
+            <a
+              className="service-open-link apple-music-open-link"
+              href={playlist.url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <AppleBrandIcon size={15} />
               Open in Apple Music
+              <ExternalLink size={13} aria-hidden="true" />
             </a>
           ) : null}
         </div>
@@ -4612,6 +5076,27 @@ function appleMusicLegacySearchUrl(query: string): string {
   return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
 }
 
+// Spotify streams are DRM-protected too, so downloads resolve each track to a
+// YouTube search and reuse the shared download queue — the same approach as
+// Apple Music. The stable Spotify track id keys the job so it maps back after
+// the search resolves.
+function spotifyDownloadTarget(
+  track: SpotifyPlaylistTrack,
+): Extract<DownloadQueueItem, { source: "search" }> {
+  const artist = track.artistName ?? "";
+  const query =
+    track.query?.trim() || `${artist} ${track.trackName} official audio`.trim();
+  const title =
+    [artist, track.trackName].filter(Boolean).join(" - ") || track.trackName;
+  return {
+    source: "search",
+    query,
+    title,
+    sourceUrl: `spotify:${track.spotifyTrackId}`,
+    fileBaseName: title,
+  };
+}
+
 function formatTrackDuration(durationMs?: number): string {
   if (!durationMs || durationMs <= 0) {
     return "—";
@@ -4624,35 +5109,6 @@ function formatTrackDuration(durationMs?: number): string {
 
 function StatusDot({ connected }: { connected: boolean }) {
   return <span className={connected ? "status-dot connected" : "status-dot"} />;
-}
-
-function mergeSpotifySyncUpdate(
-  tracks: SpotifySyncTrack[],
-  update: SpotifySyncUpdate,
-): SpotifySyncTrack[] {
-  const next = new Map(tracks.map((track) => [track.spotifyTrackId, track]));
-  next.set(update.spotifyTrackId, update);
-  return Array.from(next.values()).sort((left, right) =>
-    `${left.artistName} ${left.trackName}`.localeCompare(
-      `${right.artistName} ${right.trackName}`,
-    ),
-  );
-}
-
-function syncStatusClass(status?: SpotifySyncTrack["status"]): string {
-  if (status === "done") {
-    return "badge ready";
-  }
-
-  if (status === "failed") {
-    return "badge danger";
-  }
-
-  if (status === "downloading") {
-    return "badge warning";
-  }
-
-  return "badge";
 }
 
 type YouTubeDownloadTarget = {

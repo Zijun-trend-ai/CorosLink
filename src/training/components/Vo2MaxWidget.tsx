@@ -186,7 +186,6 @@ export function Vo2MaxWidget({ snapshot }: Vo2MaxWidgetProps) {
 
         <div className={`vo2-gauge-value${displayValue !== undefined ? " has-value" : ""}`}>
           <strong>{displayValue !== undefined ? Math.round(displayValue) : "-"}</strong>
-          <span>ml/kg/min</span>
         </div>
       </div>
 
