@@ -10116,11 +10116,13 @@ td span {
   border: 0;
 }
 
-.music-signin {
+.music-signin,
+.apple-music-signin {
   gap: 18px;
 }
 
-.music-login {
+.music-login,
+.apple-music-login {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
@@ -10129,7 +10131,8 @@ td span {
   background: #0f0f0f;
 }
 
-.music-login-toolbar {
+.music-login-toolbar,
+.apple-music-login-toolbar {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -10138,7 +10141,8 @@ td span {
   background: var(--surface-2, rgba(255, 255, 255, 0.02));
 }
 
-.music-login-url {
+.music-login-url,
+.apple-music-login-url {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -10148,13 +10152,15 @@ td span {
   color: var(--text-muted);
 }
 
-.music-login-frame {
+.music-login-frame,
+.apple-music-login-frame {
   flex: none;
   height: clamp(440px, 64vh, 760px);
   min-height: 440px;
 }
 
-.music-signin-footer {
+.music-signin-footer,
+.apple-music-signin-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -10162,7 +10168,8 @@ td span {
   flex-wrap: wrap;
 }
 
-.music-signin-back {
+.music-signin-back,
+.apple-music-signin-back {
   align-self: flex-start;
   display: inline-flex;
   align-items: center;
